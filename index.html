@@ -835,18 +835,23 @@
     pitch += (targetPitch - pitch) * Math.min(1, 8*dt);
     roll += (targetRoll - roll) * Math.min(1, 8*dt);
 
-    // thrust direction from attitude
+    // thrust acts along the drone's body "up" axis (like a real multirotor),
+    // which tilts forward/sideways as pitch/roll change, and points straight
+    // up when level — NOT along the camera look direction.
     const thrust = t * 26; // max accel from motors
-    const forwardX = Math.sin(yaw) * Math.cos(pitch);
-    const forwardZ = Math.cos(yaw) * Math.cos(pitch);
-    const forwardY = Math.sin(pitch);
 
-    const rightX = Math.cos(yaw);
-    const rightZ = -Math.sin(yaw);
+    // body-up vector after applying pitch (tilt forward) and roll (tilt sideways), then yaw
+    let upX = Math.sin(roll);
+    let upY = Math.cos(pitch) * Math.cos(roll);
+    let upZ = -Math.sin(pitch) * Math.cos(roll);
+    // rotate by yaw around world Y
+    const thrustX = upX * Math.cos(yaw) + upZ * Math.sin(yaw);
+    const thrustZ = -upX * Math.sin(yaw) + upZ * Math.cos(yaw);
+    const thrustY = upY;
 
-    vel.x += (forwardX * thrust + rightX * roll * 8) * dt;
-    vel.z += (forwardZ * thrust + rightZ * roll * 8) * dt;
-    vel.y += (forwardY * thrust + GRAVITY + t*2) * dt;
+    vel.x += thrustX * thrust * dt;
+    vel.z += thrustZ * thrust * dt;
+    vel.y += (thrustY * thrust + GRAVITY) * dt;
 
     // drag
     vel.multiplyScalar(1 - Math.min(1, 1.1*dt));
