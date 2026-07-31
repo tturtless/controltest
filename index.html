@@ -904,9 +904,31 @@
     return nextPos.y < 0.15; // ground collision
   }
 
+  const flyIgnitionLabel = document.getElementById('flyIgnitionLabel');
+
   function getInputs(){
     // reuse the page's gamepad config (cfg) + active gamepad if present
     let r = 0, p = 0, y = 0, t = 0;
+
+    // --- check button 7 for ignition (value goes 0→1 when toggled on) ---
+    try {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      for (const pd of pads) {
+        if (pd && pd.buttons && pd.buttons.length > 7) {
+          ignitionOn = pd.buttons[7].value > 0.5 || pd.buttons[7].pressed;
+          break;
+        }
+      }
+    } catch(e){}
+
+    // update ignition OSD label
+    if (flyIgnitionLabel) {
+      flyIgnitionLabel.textContent = ignitionOn ? 'IGNITION ON' : 'IGNITION OFF';
+      flyIgnitionLabel.style.color = ignitionOn ? '#39ff9d' : '#ff4d5e';
+    }
+
+    // no ignition = no power, drone stays still
+    if (!ignitionOn) return { r, p, y, t };
 
     const anyKey = keys['KeyW']||keys['KeyS']||keys['KeyA']||keys['KeyD']||keys['KeyQ']||keys['KeyE']||keys['KeyR']||keys['KeyF'];
 
@@ -940,6 +962,7 @@
     return { r, p, y, t };
   }
   let kbThrottle = 0;
+  let ignitionOn = false;
 
   let lastTime = null;
   function animate(time){
@@ -1039,6 +1062,8 @@
     orientation.identity();
     orientation.setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI); // face spawn-forward
     kbThrottle = 0;
+    ignitionOn = false;
+    if (flyIgnitionLabel) { flyIgnitionLabel.textContent = 'IGNITION OFF'; flyIgnitionLabel.style.color = '#ff4d5e'; }
     flying = true;
     lastTime = null;
     animId = requestAnimationFrame(animate);
