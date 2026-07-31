@@ -869,6 +869,103 @@
     }
     buildLoopPath(65, 14, -35, 10, 26);
 
+    // ---- GIANT SPIRAL CLIMBING POLE: modeled on a playground spiral
+    // ladder — a single continuous helical tube corkscrewing up around a
+    // straight center pole, hugely scaled up so you fly the corkscrew line
+    // around it (or dive straight up through the middle of the coil). Built
+    // from short straight segments angled to approximate the helix curve,
+    // same technique as the rest of the map (boxes only, no new geometry
+    // types), so it collides exactly like everything else here.
+    const spiralPoleMat = new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.5 });
+    const spiralCenterMat = new THREE.MeshStandardMaterial({ color: 0xcfc19a, roughness: 0.5 });
+    function buildGiantSpiralTower(cx, cz, radius, totalHeight, turns, segsPerTurn){
+      // straight center pole, the "spine" of the structure, climbing the
+      // full height — you can shoot straight up the middle of the coil
+      addCylinder(cx, totalHeight/2, cz, 0.55, totalHeight, spiralCenterMat);
+      // helical tube made of many short tilted box segments tracing a
+      // circle around the spine while climbing
+      const segs = turns * segsPerTurn;
+      const rise = totalHeight / segs;
+      for (let i = 0; i < segs; i++){
+        const a0 = (i / segsPerTurn) * Math.PI * 2;
+        const a1 = ((i+1) / segsPerTurn) * Math.PI * 2;
+        const x0 = cx + Math.cos(a0) * radius, z0 = cz + Math.sin(a0) * radius, y0 = i * rise + 1;
+        const x1 = cx + Math.cos(a1) * radius, z1 = cz + Math.sin(a1) * radius, y1 = (i+1) * rise + 1;
+        const mx = (x0+x1)/2, my = (y0+y1)/2, mz = (z0+z1)/2;
+        const dx = x1-x0, dy = y1-y0, dz = z1-z0;
+        const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        const seg = addBox(mx, my, mz, 0.4, 0.4, len, spiralPoleMat);
+        seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), new THREE.Vector3(dx,dy,dz).normalize());
+        // keep an accurate collision box for the rotated segment: swap to a
+        // roughly-cubic collider sized to the segment length so tilted
+        // orientation doesn't create phantom gaps or over-wide hits
+        obstacles[obstacles.length-1].w = 0.6; obstacles[obstacles.length-1].h = 0.6; obstacles[obstacles.length-1].d = len;
+      }
+      // small landing platform at the very top, like the play structure deck
+      addBox(cx, totalHeight + 0.3, cz, 6, 0.6, 6, spiralCenterMat);
+    }
+    buildGiantSpiralTower(-15, -195, 7, 55, 4, 10);
+
+    // ---- twin spiral towers linked by a sky-bridge: two more giant spiral
+    // climbs (smaller than the main one) connected by a high crossing beam,
+    // so you can spiral up one, cross over, and dive down the other ----
+    function buildLinkedSpiralPair(cx, cz, gap, radius, height, turns){
+      buildGiantSpiralTower(cx - gap/2, cz, radius, height, turns, 9);
+      buildGiantSpiralTower(cx + gap/2, cz, radius, height, turns, 9);
+      const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x555f66 });
+      addBox(cx, height - 4, cz, gap - radius*1.4, 1.2, 2.6, bridgeMat); // walkable/flyable crossing beam
+      addBox(cx, height - 1.2, cz - 1.3, gap - radius*1.4, 0.15, 0.15, bridgeMat); // thin rail, top
+    }
+    buildLinkedSpiralPair(110, -30, 24, 5, 36, 3);
+
+    // ---- corkscrew flight tube: a long open helical corridor (two rails
+    // spiraling together like a DNA strand) you fly straight through the
+    // core of while banking with the turn — more complex than a simple
+    // spiral pole since it's a full enclosed-ish tube, not just a climb ----
+    const tubeMatA = new THREE.MeshStandardMaterial({ color: 0x39ff9d, roughness: 0.4 });
+    const tubeMatB = new THREE.MeshStandardMaterial({ color: 0x4dd8ff, roughness: 0.4 });
+    // a straight-line tube of rings that twists as it travels forward,
+    // giving a corkscrew flight path forward rather than a vertical climb
+    // (complements the vertical spiral towers above)
+    function buildForwardCorkscrew(sx, sy, sz, len, radius, turns, ringCount, matA, matB){
+      for (let i = 0; i < ringCount; i++){
+        const t = i / (ringCount - 1);
+        const z = sz - t * len;
+        const a = t * Math.PI * 2 * turns;
+        const yOff = Math.sin(a) * radius * 0.4; // gentle vertical weave while spinning
+        addRingGate(sx, sy + yOff, z, radius, i % 2 === 0 ? matA : matB, 14);
+      }
+    }
+    buildForwardCorkscrew(-70, 8, 90, 60, 4, 2.5, 10, tubeMatA, tubeMatB);
+
+    // ---- catwalk lattice: a multi-level open scaffold of crossing beams
+    // and platforms at three heights, forcing tight vertical threading
+    // between levels — more complex than the pillar field since gaps exist
+    // in X, Y, and Z all at once ----
+    const latticeMat = new THREE.MeshStandardMaterial({ color: 0x777f87 });
+    function buildCatwalkLattice(cx, cz, spanX, spanZ, levels){
+      for (let lvl = 0; lvl < levels; lvl++){
+        const y = 6 + lvl * 7;
+        // perimeter beams with a gap on each side to fly through, offset per level
+        const gapSide = lvl % 4; // rotate which side is open
+        const beams = [
+          { x: cx, z: cz - spanZ/2, w: spanX, d: 0.6, side: 0 },
+          { x: cx, z: cz + spanZ/2, w: spanX, d: 0.6, side: 1 },
+          { x: cx - spanX/2, z: cz, w: 0.6, d: spanZ, side: 2 },
+          { x: cx + spanX/2, z: cz, w: 0.6, d: spanZ, side: 3 },
+        ];
+        beams.forEach(b => {
+          if (b.side === gapSide) return; // leave this side open as the pass-through
+          addBox(b.x, y, b.z, b.w, 0.6, b.d, latticeMat);
+        });
+        // corner support posts tying levels together
+        [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx_,sz_]) => {
+          addBox(cx + sx_*spanX/2, y - 3.5, cz + sz_*spanZ/2, 0.5, 7, 0.5, latticeMat);
+        });
+      }
+    }
+    buildCatwalkLattice(-120, -50, 22, 18, 3);
+
     // ---- ring gate hoops: original schematic, kept exactly as-is ----
     const ringMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
     const ringMat2 = new THREE.MeshStandardMaterial({ color: 0x4dd8ff });
