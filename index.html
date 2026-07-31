@@ -686,7 +686,7 @@
   // pitching straight up, etc. never "bug out" or swap axes, because there is
   // no Euler-angle gimbal lock to fall into.
   let orientation = new THREE.Quaternion();
-  const GRAVITY = -9.8;
+  const GRAVITY = -11.76; // raised 20% from real-world -9.8
 
   const keys = {};
   window.addEventListener('keydown', (e) => { keys[e.code] = true; if (flying && e.code === 'Escape') exitFly(); });
