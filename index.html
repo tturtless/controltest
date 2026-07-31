@@ -689,7 +689,7 @@
   // pitching straight up, etc. never "bug out" or swap axes, because there is
   // no Euler-angle gimbal lock to fall into.
   let orientation = new THREE.Quaternion();
-  const GRAVITY = -11.76; // raised 20% from real-world -9.8
+  const GRAVITY = -22.0; // strong realistic free-fall (~2.2× real, accounts for sim scale)
 
   const keys = {};
   window.addEventListener('keydown', (e) => { keys[e.code] = true; if (flying && e.code === 'Escape') exitFly(); });
@@ -725,414 +725,113 @@
     grid.position.y = 0.01;
     scene.add(grid);
 
-    // ── material palette ──────────────────────────────────────────────────────
-    const obstacleMat  = new THREE.MeshStandardMaterial({ color: 0xcc4444 });
-    const pillarMat    = new THREE.MeshStandardMaterial({ color: 0xd8d8d8 });
-    const gateMat      = new THREE.MeshStandardMaterial({ color: 0xffb020 });
-    const neonPink     = new THREE.MeshStandardMaterial({ color: 0xff2d78, emissive: 0xff2d78, emissiveIntensity: 0.35 });
-    const neonCyan     = new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 0.35 });
-    const neonGreen    = new THREE.MeshStandardMaterial({ color: 0x39ff9d, emissive: 0x39ff9d, emissiveIntensity: 0.35 });
-    const neonAmber    = new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xffb020, emissiveIntensity: 0.3  });
-    const neonPurple   = new THREE.MeshStandardMaterial({ color: 0xcc44ff, emissive: 0xcc44ff, emissiveIntensity: 0.35 });
-    const concreteMat  = new THREE.MeshStandardMaterial({ color: 0x888899 });
-    const rustyMat     = new THREE.MeshStandardMaterial({ color: 0x9b5a2a });
-    const darkMat      = new THREE.MeshStandardMaterial({ color: 0x222233 });
-    const houseMat     = new THREE.MeshStandardMaterial({ color: 0xd9c9a3 });
-    const roofMat      = new THREE.MeshStandardMaterial({ color: 0x7a3b2e });
-    const trimMat      = new THREE.MeshStandardMaterial({ color: 0x5a4632 });
-    const tunnelMat    = new THREE.MeshStandardMaterial({ color: 0x445566 });
-    const glassMat     = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.25 });
+    // obstacles: solid boxes, cylinders (gates/pillars), scattered around
+    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xcc4444 });
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xd8d8d8 });
+    const gateMat = new THREE.MeshStandardMaterial({ color: 0xffb020 });
 
-    // ── primitive helpers ─────────────────────────────────────────────────────
-    function addBox(x, y, z, w, h, d, mat, rx, ry, rz){
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    function addBox(x, y, z, w, h, d, mat){
+      const geo = new THREE.BoxGeometry(w, h, d);
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(x, y, z);
-      if (rx) mesh.rotation.x = rx;
-      if (ry) mesh.rotation.y = ry;
-      if (rz) mesh.rotation.z = rz;
       scene.add(mesh);
       obstacles.push({ mesh, type: 'box', w, h, d });
       return mesh;
     }
-    function addCylinder(x, y, z, r, h, mat, segs){
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, segs||16), mat);
+    function addCylinder(x, y, z, r, h, mat){
+      const geo = new THREE.CylinderGeometry(r, r, h, 16);
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(x, y, z);
       scene.add(mesh);
       obstacles.push({ mesh, type: 'cylinder', r, h });
       return mesh;
     }
-    function addConeMesh(x, y, z, r, h, mat){
-      const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, 12), mat);
-      mesh.position.set(x, y, z);
-      scene.add(mesh);
-      obstacles.push({ mesh, type: 'cylinder', r, h }); // approx cone as cylinder for collision
-      return mesh;
-    }
-    // Square racing gate: two uprights + crossbar, gap in the middle
-    function addSquareGate(cx, cy, cz, gapW, gapH, thick, mat, ry){
-      const grp = new THREE.Group();
-      grp.position.set(cx, cy, cz);
-      if (ry) grp.rotation.y = ry;
-      scene.add(grp);
-      const postH = gapH + thick*2;
-      // left post
-      const lp = new THREE.Mesh(new THREE.BoxGeometry(thick, postH, thick), mat);
-      lp.position.set(-gapW/2 - thick/2, postH/2 - cy, 0);
-      grp.add(lp);
-      obstacles.push({ mesh: lp, type: 'box', w: thick, h: postH, d: thick });
-      // right post
-      const rp = lp.clone(); rp.position.x = gapW/2 + thick/2;
-      grp.add(rp);
-      obstacles.push({ mesh: rp, type: 'box', w: thick, h: postH, d: thick });
-      // top bar
-      const tb = new THREE.Mesh(new THREE.BoxGeometry(gapW + thick*2, thick, thick), mat);
-      tb.position.set(0, gapH/2 + thick/2 + gapH/2 - cy + thick/2, 0);
-      // simpler: just put top bar at the right world Y
-      tb.position.set(0, cy + gapH/2 + thick/2, 0);
-      tb.position.y -= cy; // local space
-      grp.add(tb);
-      obstacles.push({ mesh: tb, type: 'box', w: gapW + thick*2, h: thick, d: thick });
-    }
-    // Bead-ring gate (circular hoop)
-    function addRingGate(cx, cy, cz, radius, mat, segments, ry){
-      segments = segments || 20;
-      const bead = Math.max(0.7, radius * 0.14);
-      const grp = new THREE.Group();
-      grp.position.set(cx, cy, cz);
-      if (ry) grp.rotation.y = ry;
-      scene.add(grp);
+    // a ring of small cube "beads" you fly through the middle of — like a
+    // circular drone-racing gate. Ring stands vertically, hole facing +Z/-Z.
+    function addRingGate(cx, cy, cz, radius, mat, segments){
+      segments = segments || 16;
+      const bead = Math.max(0.9, radius * 0.16);
       for (let i = 0; i < segments; i++){
         const a = (i / segments) * Math.PI * 2;
-        const lx = Math.cos(a) * radius;
-        const ly = Math.sin(a) * radius;
-        const b = new THREE.Mesh(new THREE.BoxGeometry(bead, bead, bead), mat);
-        b.position.set(lx, ly, 0);
-        grp.add(b);
-        obstacles.push({ mesh: b, type: 'box', w: bead, h: bead, d: bead });
+        const x = cx + Math.cos(a) * radius;
+        const y = cy + Math.sin(a) * radius;
+        addBox(x, y, cz, bead, bead, bead, mat);
       }
     }
-    // Diamond/tilted square gate (45° rotated square)
-    function addDiamondGate(cx, cy, cz, size, mat, ry){
-      const s = 0.55, half = size;
-      const grp = new THREE.Group();
-      grp.position.set(cx, cy, cz);
-      if (ry) grp.rotation.y = ry;
-      scene.add(grp);
-      const dirs = [[0, half],[0,-half],[half,0],[-half,0]];
-      const bars = [
-        [half/2, half/2,  half, s, -Math.PI/4],
-        [-half/2, half/2, half, s,  Math.PI/4],
-        [-half/2,-half/2, half, s, -Math.PI/4],
-        [ half/2,-half/2, half, s,  Math.PI/4],
-      ];
-      bars.forEach(([lx,ly,len,t,rz]) => {
-        const b = new THREE.Mesh(new THREE.BoxGeometry(len*Math.SQRT2*0.72, t, t), mat);
-        b.position.set(lx, ly, 0);
-        b.rotation.z = rz;
-        grp.add(b);
-        obstacles.push({ mesh: b, type: 'box', w: len, h: t, d: t });
-      });
-    }
 
-    // ── scattered crates & barrels ────────────────────────────────────────────
-    const rng = (a,b) => a + Math.random()*(b-a);
-    for (let i = 0; i < 18; i++){
-      const x = rng(-140,140), z = rng(-160,-10);
-      if (Math.abs(x)<8 && z>10) continue;
-      const s = rng(1.2,3.2);
+    // scattered crates
+    for (let i = 0; i < 14; i++){
+      const x = (Math.random()-0.5) * 160;
+      const z = (Math.random()-0.5) * 160 - 20;
+      if (Math.abs(x) < 6 && Math.abs(z - 20) < 10) continue; // keep spawn clear
+      const s = 1.5 + Math.random()*2.5;
       addBox(x, s/2, z, s, s, s, obstacleMat);
     }
-    // rusty barrels
-    for (let i = 0; i < 12; i++){
-      const x = rng(-120,120), z = rng(-150,-5);
-      addCylinder(x, 1.2, z, 0.6, 2.4, rustyMat, 10);
+    // pillars
+    for (let i = 0; i < 8; i++){
+      const x = (Math.random()-0.5) * 180;
+      const z = (Math.random()-0.5) * 180 - 20;
+      const h = 8 + Math.random()*14;
+      addCylinder(x, h/2, z, 1.2, h, pillarMat);
     }
+    // a gate to fly through
+    addBox(0, 6, -30, 0.6, 12, 0.6, gateMat);
+    addBox(-6, 6, -30, 0.6, 12, 0.6, gateMat);
+    addBox(-3, 12, -30, 6.6, 0.6, 0.6, gateMat);
 
-    // ── concrete pillars / pylons ─────────────────────────────────────────────
-    for (let i = 0; i < 10; i++){
-      const x = rng(-160,160), z = rng(-180,-20);
-      const h = rng(8,20);
-      addCylinder(x, h/2, z, rng(0.8,1.8), h, concreteMat);
-    }
-
-    // ── ZONE 1 – Classic racing gates near spawn ──────────────────────────────
-    // starter square gate right ahead
-    addSquareGate(0, 0, -28, 5, 4.5, 0.5, gateMat, 0);
-    // angled approach gate
-    addSquareGate(-8, 0, -44, 4.5, 4, 0.5, neonCyan, Math.PI*0.1);
-    // circular hoop
-    addRingGate(10, 5, -58, 4, neonPink, 22);
-    // diamond gate
-    addDiamondGate(0, 6, -72, 4.5, neonGreen, 0);
-
-    // ── ZONE 2 – Low canyon slalom: narrow gap walls ───────────────────────────
-    // parallel wall pairs with alternating gaps left/right
-    ;(function buildSlalom(sx, sz){
-      const wallMat = concreteMat;
-      const gapW = 5.5, wallH = 5, wallD = 1, wallW = 12;
-      for (let i = 0; i < 6; i++){
-        const side = (i%2===0) ? 1 : -1;
-        const wz = sz - i * 14;
-        // full wall minus a gap on the appropriate side
-        const gapX = side * (wallW/2 - gapW/2);
-        const solidW = wallW - gapW;
-        addBox(sx - side*(solidW/2 + gapW/2), wallH/2, wz, solidW, wallH, wallD, wallMat);
-        // short neon trim on gap edges
-        addBox(sx + gapX - gapW/2, wallH, wz, 0.3, 0.4, wallD+0.2, neonAmber);
-        addBox(sx + gapX + gapW/2, wallH, wz, 0.3, 0.4, wallD+0.2, neonAmber);
-      }
-    })(55, -30);
-
-    // ── ZONE 3 – Corkscrew ring chain (rings tilted progressively) ────────────
-    ;(function buildCorkscrew(sx, sz){
-      const mats = [neonPink, neonCyan, neonGreen, neonAmber, neonPurple, neonPink, neonCyan];
-      for (let i = 0; i < 7; i++){
-        const tilt = (i / 6) * Math.PI; // 0 → 180° → full barrel
-        const cx = sx;
-        const cy = 5 + Math.sin(i/6*Math.PI) * 3;
-        const cz = sz - i * 13;
-        const grp = new THREE.Group();
-        grp.position.set(cx, cy, cz);
-        grp.rotation.z = tilt;
-        scene.add(grp);
-        const r = 4, segs = 20, bead = 0.55;
-        for (let j = 0; j < segs; j++){
-          const a = (j/segs)*Math.PI*2;
-          const b = new THREE.Mesh(new THREE.BoxGeometry(bead,bead,bead), mats[i]);
-          b.position.set(Math.cos(a)*r, Math.sin(a)*r, 0);
-          grp.add(b);
-          obstacles.push({ mesh: b, type: 'box', w: bead, h: bead, d: bead });
-        }
-      }
-    })(-55, -20);
-
-    // ── ZONE 4 – Long S-bend tunnel ───────────────────────────────────────────
-    ;(function buildSBend(tx, tz){
-      const wH = 5.5, gapW = 5.2, thick = 0.6, segLen = 9;
-      // straight entry
-      addBox(tx, wH/2, tz,          thick, wH, segLen, tunnelMat);
-      addBox(tx+gapW, wH/2, tz,     thick, wH, segLen, tunnelMat);
-      addBox(tx+gapW/2, wH+thick/2, tz, gapW+thick*2, thick, segLen, tunnelMat);
-      // bend left
-      const bz = tz - segLen;
-      addBox(tx-3, wH/2, bz,        thick, wH, segLen, tunnelMat);
-      addBox(tx+gapW+3, wH/2, bz,   thick, wH, segLen, tunnelMat);
-      addBox(tx+1.5, wH+thick/2, bz, gapW+thick*2+6, thick, segLen, tunnelMat);
-      // straight exit
-      const ez = bz - segLen;
-      addBox(tx-3, wH/2, ez,        thick, wH, segLen, tunnelMat);
-      addBox(tx+gapW-3, wH/2, ez,   thick, wH, segLen, tunnelMat);
-      addBox(tx+gapW/2-3, wH+thick/2, ez, gapW+thick*2, thick, segLen, tunnelMat);
-      // neon strip lights along roof
-      addBox(tx+gapW/2, wH-0.2, tz,  gapW*0.8, 0.15, segLen*0.9, neonCyan);
-      addBox(tx+1.5,    wH-0.2, bz,  gapW*0.8, 0.15, segLen*0.9, neonGreen);
-      addBox(tx+gapW/2-3, wH-0.2, ez, gapW*0.8, 0.15, segLen*0.9, neonPink);
-    })(-30, -95);
-
-    // ── ZONE 5 – Skyscraper canyon with window gaps ───────────────────────────
-    ;(function buildCanyon(sx, sz){
-      const floorH = 4.5, winH = 3, winW = 4;
-      for (let side = -1; side <= 1; side += 2){
-        const wx = sx + side * 9;
-        for (let floor = 0; floor < 5; floor++){
-          const by = floor * (floorH + winH);
-          // solid floor slab
-          addBox(wx, by + floorH/2, sz, 4, floorH, 30, darkMat);
-          // window gap is the missing piece — just don't add a box there, drone flies through
-          // neon window frame strips
-          addBox(wx, by + floorH + winH/2, sz - 5, 4.1, 0.2, 0.2, neonCyan);
-          addBox(wx, by + floorH + winH/2, sz + 5, 4.1, 0.2, 0.2, neonCyan);
-        }
-      }
-      // top caps
-      addBox(sx-9, 5*(floorH+winH)+1, sz, 5, 2, 32, darkMat);
-      addBox(sx+9, 5*(floorH+winH)+1, sz, 5, 2, 32, darkMat);
-    })(80, -80);
-
-    // ── ZONE 6 – Geodesic/lattice arch series ─────────────────────────────────
-    ;(function buildArches(sx, sz){
-      for (let i = 0; i < 5; i++){
-        const ax = sx, ay = 0, az = sz - i*18;
-        const span = 8, rise = 7, segs = 10, t = 0.4;
-        for (let j = 0; j < segs; j++){
-          const a0 = (j/segs) * Math.PI;
-          const a1 = ((j+1)/segs) * Math.PI;
-          const x0 = -span/2 + Math.cos(Math.PI - a0)*span/2;
-          const y0 = Math.sin(a0)*rise;
-          const x1 = -span/2 + Math.cos(Math.PI - a1)*span/2;
-          const y1 = Math.sin(a1)*rise;
-          const mx = ax+(x0+x1)/2, my = ay+(y0+y1)/2;
-          const len = Math.sqrt((x1-x0)**2+(y1-y0)**2);
-          const ang = Math.atan2(y1-y0, x1-x0);
-          const seg = new THREE.Mesh(new THREE.BoxGeometry(len, t, t), i%2===0 ? neonPurple : neonAmber);
-          seg.position.set(mx, my, az);
-          seg.rotation.z = ang;
-          scene.add(seg);
-          obstacles.push({ mesh: seg, type: 'box', w: len, h: t, d: t });
-        }
-        // side pillars
-        addBox(ax - span/2, rise/2, az, t, rise, t, concreteMat);
-        addBox(ax + span/2, rise/2, az, t, rise, t, concreteMat);
-      }
-    })(-80, -60);
-
-    // ── ZONE 7 – Staircase skill gap ─────────────────────────────────────────
-    ;(function buildStaircase(sx, sz){
-      const steps = 7, stepW = 12, stepH = 1.6, stepD = 3, gap = 2.8;
-      for (let i = 0; i < steps; i++){
-        const sy = (i+1)*stepH;
-        // platform
-        addBox(sx, sy - stepH/2, sz - i*(stepD+gap), stepW, stepH, stepD, concreteMat);
-        // neon edge
-        addBox(sx, sy, sz - i*(stepD+gap) + stepD/2, stepW, 0.15, 0.15, neonGreen);
-      }
-    })(110, -50);
-
-    // ── ZONE 8 – Helix tower: spiral ramps around a central column ────────────
-    ;(function buildHelix(hx, hz){
-      addCylinder(hx, 12, hz, 1.5, 24, darkMat);
-      const turns = 3, segsPerTurn = 12, rampR = 5, rampW = 3;
-      const total = turns * segsPerTurn;
-      for (let i = 0; i < total; i++){
-        const a = (i/total)*Math.PI*2*turns;
-        const y = (i/total)*22 + 0.4;
-        const rx = hx + Math.cos(a)*rampR;
-        const rz = hz + Math.sin(a)*rampR;
-        const seg = new THREE.Mesh(new THREE.BoxGeometry(rampW, 0.3, rampW*0.6), neonAmber);
-        seg.position.set(rx, y, rz);
-        seg.rotation.y = -a;
-        scene.add(seg);
-        obstacles.push({ mesh: seg, type: 'box', w: rampW, h: 0.3, d: rampW*0.6 });
-      }
-    })(-110, -110);
-
-    // ── ZONE 9 – Skill-gap wall ladder (horizontal gaps at varying heights) ───
-    ;(function buildLadder(sx, sz){
-      const wallW = 18, wallD = 0.7, gapH = 2.8, gapW = 5;
-      const heights = [2, 5, 3, 7, 4, 6];
-      heights.forEach((gy, i) => {
-        const wz = sz - i * 15;
-        const side = i%2===0 ? -1 : 1;
-        const gapX = side * 3;
-        // left solid
-        addBox(sx + gapX - gapW/2 - (wallW/2 - gapW)/2, gy + gapH/2, wz,
-          wallW/2 - gapW/2 + Math.abs(gapX) - Math.abs(gapX)/2, gapH, wallD, concreteMat);
-        // right solid (approximate — just two walls with gap)
-        addBox(sx - 5, gy/2, wz, 4, gy, wallD, concreteMat);
-        addBox(sx + 5, gy/2, wz, 4, gy, wallD, concreteMat);
-        addBox(sx - 5, gy + gapH + 1, wz, 4, 2, wallD, concreteMat);
-        addBox(sx + 5, gy + gapH + 1, wz, 4, 2, wallD, concreteMat);
-        // neon gap marker
-        addBox(sx, gy - 0.1, wz, gapW*0.8, 0.15, 0.15, neonPink);
-        addBox(sx, gy + gapH + 0.1, wz, gapW*0.8, 0.15, 0.15, neonPink);
-      });
-    })(0, -110);
-
-    // ── ZONE 10 – Trestle bridge (fly under or through gaps) ─────────────────
-    ;(function buildBridge(bx, bz){
-      const span = 50, h = 8, col = 0.8;
-      // deck
-      addBox(bx, h, bz, span, 0.5, 4, concreteMat);
-      // trusses (X frames every 8 units)
-      for (let i = -2; i <= 2; i++){
-        const cx = bx + i*9;
-        addBox(cx, h/2, bz, col, h, col, darkMat);
-        // diagonal braces visual (no collision complexity, just thin boxes)
-        addBox(cx + 4.5, h/2, bz, 0.3, h, 0.3, concreteMat, 0, 0, Math.PI*0.2);
-      }
-      // neon rails
-      addBox(bx, h+0.5, bz-2.2, span, 0.2, 0.2, neonCyan);
-      addBox(bx, h+0.5, bz+2.2, span, 0.2, 0.2, neonCyan);
-    })(-10, -145);
-
-    // ── ZONE 11 – Giant letter F-P-V built from boxes ─────────────────────────
-    ;(function buildLetters(lx, lz){
-      const col = neonGreen, h = 8, t = 1;
-      // F
-      addBox(lx,    h/2,  lz, t, h, t, col);
-      addBox(lx+2,  h-t/2,lz, 4, t, t, col);
-      addBox(lx+2,  h/2,  lz, 2.5, t, t, col);
-      // P
-      const px = lx+8;
-      addBox(px,    h/2,  lz, t, h, t, col);
-      addBox(px+2,  h-t/2,lz, 3.5, t, t, col);
-      addBox(px+2,  h/2,  lz, 3.5, t, t, col);
-      addBox(px+3.5,h*0.625,lz,t, h*0.25, t, col);
-      // V
-      const vx = px+8;
-      addBox(vx-1,  h*0.6,lz, t, h*0.8, t, col, 0, 0,  0.3);
-      addBox(vx+1,  h*0.6,lz, t, h*0.8, t, col, 0, 0, -0.3);
-    })(-70, -170);
-
-    // ── ZONE 12 – House (fly in door, out window) ─────────────────────────────
-    ;(function buildHouse(hx, hz){
-      const W=14, D=12, WALL_H=7, doorW=3.4, doorH=5;
-      const dSeg=(W-doorW)/2;
-      addBox(hx-(W+doorW)/4, WALL_H/2, hz+D/2, dSeg, WALL_H, 0.5, houseMat);
-      addBox(hx+(W+doorW)/4, WALL_H/2, hz+D/2, dSeg, WALL_H, 0.5, houseMat);
-      addBox(hx, doorH+(WALL_H-doorH)/2, hz+D/2, doorW, WALL_H-doorH, 0.5, trimMat);
-      addBox(hx, WALL_H/2, hz-D/2, W, WALL_H, 0.5, houseMat);
-      addBox(hx-W/2, WALL_H/2, hz, 0.5, WALL_H, D, houseMat);
-      const winW=3, winH=3, winB=2.2, wSeg=(D-winW)/2;
-      addBox(hx+W/2, WALL_H/2, hz-(D+winW)/4, 0.5, WALL_H, wSeg, houseMat);
-      addBox(hx+W/2, WALL_H/2, hz+(D+winW)/4, 0.5, WALL_H, wSeg, houseMat);
-      addBox(hx+W/2, winB/2, hz, 0.5, winB, winW, houseMat);
-      addBox(hx+W/2, winB+winH+(WALL_H-winB-winH)/2, hz, 0.5, WALL_H-winB-winH, winW, houseMat);
-      const roofL = addBox(hx, WALL_H+1.6, hz-D*0.27, W*0.62, 0.5, D*0.62, roofMat);
-      roofL.rotation.x = -0.5;
-      const roofR = addBox(hx, WALL_H+1.6, hz+D*0.27, W*0.62, 0.5, D*0.62, roofMat);
+    // ---- house: fly in through the front door, out a side window ----
+    const houseMat = new THREE.MeshStandardMaterial({ color: 0xd9c9a3 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x7a3b2e });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x5a4632 });
+    (function buildHouse(hx, hz){
+      const W = 14, D = 12, WALL_H = 7;
+      // front wall (facing spawn, +Z side) with a door gap in the middle
+      const doorW = 3.4, doorH = 5;
+      const dSeg = (W - doorW) / 2;
+      addBox(hx - (W + doorW)/4, WALL_H/2, hz + D/2, dSeg, WALL_H, 0.5, houseMat);
+      addBox(hx + (W + doorW)/4, WALL_H/2, hz + D/2, dSeg, WALL_H, 0.5, houseMat);
+      addBox(hx, doorH + (WALL_H-doorH)/2, hz + D/2, doorW, WALL_H - doorH, 0.5, trimMat); // lintel above door
+      // back wall, solid
+      addBox(hx, WALL_H/2, hz - D/2, W, WALL_H, 0.5, houseMat);
+      // left wall, solid
+      addBox(hx - W/2, WALL_H/2, hz, 0.5, WALL_H, D, houseMat);
+      // right wall with a window gap to fly out through
+      const winW = 3, winH = 3, winBottom = 2.2;
+      const wSeg = (D - winW) / 2;
+      addBox(hx + W/2, WALL_H/2, hz - (D + winW)/4, 0.5, WALL_H, wSeg, houseMat);
+      addBox(hx + W/2, WALL_H/2, hz + (D + winW)/4, 0.5, WALL_H, wSeg, houseMat);
+      addBox(hx + W/2, winBottom/2, hz, 0.5, winBottom, winW, houseMat); // sill, below window
+      addBox(hx + W/2, winBottom + winH + (WALL_H-winBottom-winH)/2, hz, 0.5, WALL_H-winBottom-winH, winW, houseMat); // lintel, above window
+      // peaked roof (two angled slabs)
+      const roofL = addBox(hx, WALL_H + 1.6, hz - D*0.27, W*0.62, 0.5, D*0.62, roofMat);
+      roofL.rotation.x = -0.5; roofL.geometry.computeBoundingBox();
+      const roofR = addBox(hx, WALL_H + 1.6, hz + D*0.27, W*0.62, 0.5, D*0.62, roofMat);
       roofR.rotation.x = 0.5;
-      addBox(hx+W*0.28, WALL_H+3.2, hz-D*0.18, 1.1, 3, 1.1, trimMat);
+      // chimney
+      addBox(hx + W*0.28, WALL_H + 3.2, hz - D*0.18, 1.1, 3, 1.1, trimMat);
     })(45, -55);
 
-    // ── ZONE 13 – Low speed tunnel with chicane inside ────────────────────────
-    ;(function buildChicaneTunnel(tx, tz){
-      const wH=5.5, gap=5.2, thick=0.6, len=36;
-      addBox(tx,     wH/2, tz, thick, wH, len, tunnelMat);
-      addBox(tx+gap, wH/2, tz, thick, wH, len, tunnelMat);
-      addBox(tx+gap/2, wH+thick/2, tz, gap+thick*2, thick, len, tunnelMat);
-      // chicane walls inside
-      addBox(tx+gap*0.25, wH/2, tz+8,  gap*0.55, wH-1, thick, darkMat);
-      addBox(tx+gap*0.75, wH/2, tz-8,  gap*0.55, wH-1, thick, darkMat);
-      // strip lights
-      addBox(tx+gap/2, wH-0.15, tz, gap*0.85, 0.12, len*0.9, neonCyan);
-    })(-45, -40);
+    // ---- tunnel corridor: long roofed passage to fly straight through ----
+    const tunnelMat = new THREE.MeshStandardMaterial({ color: 0x555f66 });
+    (function buildTunnel(tx, tz, len){
+      const wallGap = 5, wallH = 6;
+      addBox(tx - wallGap/2, wallH/2, tz, 0.6, wallH, len, tunnelMat);
+      addBox(tx + wallGap/2, wallH/2, tz, 0.6, wallH, len, tunnelMat);
+      addBox(tx, wallH + 0.3, tz, wallGap + 1.2, 0.6, len, tunnelMat);
+    })(-45, -40, 26);
 
-    // ── ZONE 14 – Orbital rings: rings in 3 axes like an armillary sphere ─────
-    ;(function buildOrbital(ox, oy, oz){
-      const rads = [6, 6, 6], tilts = [0, Math.PI/2, Math.PI/4];
-      const mats2 = [neonPink, neonCyan, neonAmber];
-      tilts.forEach((tilt, ti) => {
-        const grp = new THREE.Group();
-        grp.position.set(ox, oy, oz);
-        grp.rotation.x = tilt;
-        scene.add(grp);
-        const r = rads[ti], segs = 24, bead = 0.5;
-        for (let j = 0; j < segs; j++){
-          const a = (j/segs)*Math.PI*2;
-          const b = new THREE.Mesh(new THREE.BoxGeometry(bead,bead,bead), mats2[ti]);
-          b.position.set(Math.cos(a)*r, Math.sin(a)*r, 0);
-          grp.add(b);
-          obstacles.push({ mesh: b, type: 'box', w: bead, h: bead, d: bead });
-        }
-      });
-    })(30, 8, -130);
+    // ---- ring gates: fly the hoop, three of them staggered ----
+    const ringMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
+    const ringMat2 = new THREE.MeshStandardMaterial({ color: 0x4dd8ff });
+    const ringMat3 = new THREE.MeshStandardMaterial({ color: 0x39ff9d });
+    addRingGate(20, 5, -10, 4, ringMat1);
+    addRingGate(30, 7, -60, 4.5, ringMat2);
+    addRingGate(-25, 6, -85, 4, ringMat3);
 
-    // ── ZONE 15 – Diving cliff drop: tall wall with a tiny gap near the top ───
-    ;(function buildCliffDrop(cx, cz){
-      const W=20, H=22, gapH=3, gapW=5, gapY=H-gapH-1;
-      addBox(cx-(W-gapW)/4 - gapW/2, gapY/2,     cz, (W-gapW)/2, gapY,    1, concreteMat);
-      addBox(cx+(W-gapW)/4 + gapW/2, gapY/2,     cz, (W-gapW)/2, gapY,    1, concreteMat);
-      addBox(cx, gapY + gapH + (H-gapY-gapH)/2,  cz, W, H-gapY-gapH,     1, concreteMat);
-      // neon gap frame
-      addBox(cx, gapY,          cz, gapW+0.4, 0.2, 0.3, neonPurple);
-      addBox(cx, gapY+gapH,     cz, gapW+0.4, 0.2, 0.3, neonPurple);
-    })(140, -100);
-
-    // ── windmill landmark ─────────────────────────────────────────────────────
+    // ---- windmill: cosmetic landmark to fly around ----
     const millMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee });
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
-    ;(function buildWindmill(mx, mz){
+    (function buildWindmill(mx, mz){
       addCylinder(mx, 5, mz, 1, 10, millMat);
       const hub = new THREE.Group();
       hub.position.set(mx, 9.5, mz);
@@ -1147,6 +846,123 @@
       hub.rotation.x = 0.2;
       scene.add(hub);
     })(60, -20);
+
+    // ---- ADDITIONAL STRUCTURES ----
+
+    // --- Slalom pole line: 10 tall poles in a straight line to weave through ---
+    const slalomMat = new THREE.MeshStandardMaterial({ color: 0xff6600 });
+    for (let i = 0; i < 10; i++){
+      addCylinder(-80 + i * 9, 5, -50, 0.4, 10, slalomMat);
+    }
+
+    // --- Low race gate corridor: 5 box gates in a line, fly through each ---
+    const raceGateMat = new THREE.MeshStandardMaterial({ color: 0xffdd00 });
+    for (let i = 0; i < 5; i++){
+      const gx = 60, gz = -20 - i * 18;
+      // left post
+      addBox(gx - 4, 4, gz, 0.5, 8, 0.5, raceGateMat);
+      // right post
+      addBox(gx + 4, 4, gz, 0.5, 8, 0.5, raceGateMat);
+      // top bar
+      addBox(gx, 8, gz, 8.5, 0.5, 0.5, raceGateMat);
+    }
+
+    // --- Tall bridge / arch: fly under the span ---
+    const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+    // two towers
+    addBox(-10, 10, -130, 1.5, 20, 1.5, bridgeMat);
+    addBox( 10, 10, -130, 1.5, 20, 1.5, bridgeMat);
+    // deck slab
+    addBox(0, 20, -130, 24, 1, 4, bridgeMat);
+    // approach ramps (angled boxes)
+    addBox(-20, 10, -130, 12, 1, 4, bridgeMat);
+    addBox( 20, 10, -130, 12, 1, 4, bridgeMat);
+    // cables (thin vertical rods)
+    for (let cx = -8; cx <= 8; cx += 4){
+      addBox(cx, 14, -130, 0.18, 8, 0.18, bridgeMat);
+    }
+
+    // --- Skyscraper cluster: three tall buildings to fly between ---
+    const buildMat1 = new THREE.MeshStandardMaterial({ color: 0x4466aa });
+    const buildMat2 = new THREE.MeshStandardMaterial({ color: 0x336688 });
+    const buildMat3 = new THREE.MeshStandardMaterial({ color: 0x557799 });
+    addBox(-55, 15, -120, 8, 30, 8, buildMat1);
+    addBox(-40, 20, -110, 6, 40, 6, buildMat2);
+    addBox(-62, 10, -100, 7, 20, 7, buildMat3);
+    // roof details
+    addBox(-40, 41, -110, 1.5, 4, 1.5, new THREE.MeshStandardMaterial({ color: 0xff4d5e }));
+
+    // --- Floating ring chain: five rings at different heights forming a 3D course ---
+    const chainMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
+    const chainMat2 = new THREE.MeshStandardMaterial({ color: 0xffb020 });
+    const chainMat3 = new THREE.MeshStandardMaterial({ color: 0x39ff9d });
+    const chainMat4 = new THREE.MeshStandardMaterial({ color: 0x4dd8ff });
+    const chainMat5 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
+    addRingGate(-10, 6, -160, 4,   chainMat1);
+    addRingGate(-10, 10, -175, 4,  chainMat2);
+    addRingGate(-10, 14, -190, 4,  chainMat3);
+    addRingGate(-10, 10, -205, 4,  chainMat4);
+    addRingGate(-10, 6,  -220, 4,  chainMat5);
+
+    // --- Radio tower: tall lattice-like structure to orbit ---
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+    addCylinder(85, 20, -90, 0.6, 40, towerMat);
+    // cross braces at intervals
+    for (let ht = 5; ht <= 35; ht += 8){
+      addBox(85, ht, -90, 6, 0.3, 0.3, towerMat);
+      addBox(85, ht, -90, 0.3, 0.3, 6, towerMat);
+    }
+    // blinking tip (red cylinder)
+    addCylinder(85, 41, -90, 0.35, 2, new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff0000, emissiveIntensity: 1.2 }));
+
+    // --- Low canyon walls: two long parallel walls, fly the gap ---
+    const canyonMat = new THREE.MeshStandardMaterial({ color: 0xc8a060 });
+    addBox( 6, 4, -260, 1, 8, 70, canyonMat);
+    addBox(-6, 4, -260, 1, 8, 70, canyonMat);
+    // canyon floor ramps (boxes at ground level)
+    addBox(0, 0.5, -225, 10, 1, 1, canyonMat);
+    addBox(0, 0.5, -295, 10, 1, 1, canyonMat);
+
+    // --- Spiral tower: stacked cylinders stepping outward like a corkscrew ---
+    const spiralMat = new THREE.MeshStandardMaterial({ color: 0xdd88ff });
+    for (let s = 0; s < 8; s++){
+      const angle = (s / 8) * Math.PI * 2;
+      const sr = 3;
+      const sx = 30 + Math.cos(angle) * sr;
+      const sz = -155 + Math.sin(angle) * sr;
+      const sy = s * 2 + 1;
+      addBox(sx, sy, sz, 5, 2, 5, spiralMat);
+    }
+
+    // --- Pipe / tunnel S-bend: two offset tunnel sections you thread through ---
+    const pipeMat = new THREE.MeshStandardMaterial({ color: 0x556688 });
+    // section 1 (Z-axis aligned)
+    addBox(50 - 3, 3.5, -75, 0.6, 7, 14, pipeMat);
+    addBox(50 + 3, 3.5, -75, 0.6, 7, 14, pipeMat);
+    addBox(50,     7.3, -75, 7.2, 0.6, 14, pipeMat);
+    // section 2 (offset to the side, X-axis aligned)
+    addBox(50, 3.5, -85 - 3, 14, 7, 0.6, pipeMat);
+    addBox(50, 3.5, -85 + 3, 14, 7, 0.6, pipeMat);
+    addBox(50, 7.3, -85,     14, 0.6, 7.2, pipeMat);
+
+    // --- Low-flying speed track: flat gates almost at ground level ---
+    const speedMat = new THREE.MeshStandardMaterial({ color: 0xff2266 });
+    for (let i = 0; i < 6; i++){
+      const gx2 = -20, gz2 = -30 - i * 14;
+      addBox(gx2 - 4, 2, gz2, 0.5, 4, 0.5, speedMat);
+      addBox(gx2 + 4, 2, gz2, 0.5, 4, 0.5, speedMat);
+      addBox(gx2, 4, gz2, 8.5, 0.5, 0.5, speedMat);
+    }
+
+    // --- Barn structure: large open shed with two wide openings ---
+    const barnMat = new THREE.MeshStandardMaterial({ color: 0x8b3a22 });
+    const barnRoofMat = new THREE.MeshStandardMaterial({ color: 0x5a1f0f });
+    const bx = 90, bz = -55;
+    addBox(bx,      5, bz - 10, 0.6, 10, 0.6, barnMat); // back left
+    addBox(bx + 18, 5, bz - 10, 0.6, 10, 0.6, barnMat); // back right
+    addBox(bx,      5, bz + 10, 0.6, 10, 0.6, barnMat); // front left
+    addBox(bx + 18, 5, bz + 10, 0.6, 10, 0.6, barnMat); // front right
+    addBox(bx + 9,  10.3, bz, 19.2, 0.6, 20.6, barnRoofMat); // roof
 
     buildDrone();
   }
@@ -1320,8 +1136,12 @@
     vel.z += bodyUp.z * thrust * dt;
     vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
 
-    // drag
-    vel.multiplyScalar(1 - Math.min(1, 0.7*dt)); // lower drag — high-KV top speed
+    // drag — very low so horizontal momentum carries far after throttle release,
+    // matching real FPV where a speeding quad coasts a long way in the direction
+    // it was already traveling. Vertical drag slightly higher to prevent infinite climb.
+    const speed = vel.length();
+    const dragCoeff = 0.08 + speed * 0.004; // speed-dependent drag (air resistance)
+    vel.multiplyScalar(1 - Math.min(1, dragCoeff * dt));
 
     const nextPos = pos.clone().addScaledVector(vel, dt);
     if (!collide(nextPos)){
