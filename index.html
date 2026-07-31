@@ -789,23 +789,29 @@
   function getInputs(){
     // reuse the page's gamepad config (cfg) + active gamepad if present
     let r = 0, p = 0, y = 0, t = 0;
+
+    const anyKey = keys['KeyW']||keys['KeyS']||keys['KeyA']||keys['KeyD']||keys['KeyQ']||keys['KeyE']||keys['KeyR']||keys['KeyF'];
+
     let usingPad = false;
-    try {
-      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      let gp = null;
-      for (const pd of pads) if (pd) { gp = pd; break; }
-      if (gp && window.__fpvCfg){
-        const c = window.__fpvCfg;
-        r = window.__fpvComputeSigned(gp, c.roll);
-        p = window.__fpvComputeSigned(gp, c.pitch);
-        y = window.__fpvComputeSigned(gp, c.yaw);
-        t = window.__fpvComputeThrottle(gp, c.throttle);
-        usingPad = true;
-      }
-    } catch(e){}
+    if (!anyKey){
+      try {
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let gp = null;
+        for (const pd of pads) if (pd) { gp = pd; break; }
+        if (gp && window.__fpvCfg){
+          const c = window.__fpvCfg;
+          r = window.__fpvComputeSigned(gp, c.roll);
+          p = window.__fpvComputeSigned(gp, c.pitch);
+          y = window.__fpvComputeSigned(gp, c.yaw);
+          t = window.__fpvComputeThrottle(gp, c.throttle);
+          // only trust the pad if it's actually reporting distinguishable axis data
+          if (gp.axes && gp.axes.length > 0) usingPad = true;
+        }
+      } catch(e){}
+    }
 
     if (!usingPad){
-      // keyboard fallback
+      // keyboard fallback (also used whenever a relevant key is held, even with a pad connected)
       r = (keys['KeyD']?1:0) - (keys['KeyA']?1:0);
       p = (keys['KeyW']?1:0) - (keys['KeyS']?1:0);
       y = (keys['KeyE']?1:0) - (keys['KeyQ']?1:0);
