@@ -285,7 +285,7 @@
 
   <!-- OSD -->
   <div style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
-    BETAFPV AIR65 // SIM
+    BETAFPV AIR65 // 2700KV SIM
   </div>
   <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
     THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
@@ -836,9 +836,9 @@
     // acro mode: sticks command a rotation RATE (deg/s equivalent), not a
     // clamped attitude angle, so full flips/rolls/loops are possible and the
     // craft holds whatever attitude you leave it at when sticks are centered.
-    const YAW_RATE = 2.6;   // rad/s at full deflection
-    const PITCH_RATE = 3.4; // rad/s at full deflection
-    const ROLL_RATE = 3.4;  // rad/s at full deflection
+    const YAW_RATE = 4.2;   // rad/s at full deflection — high-KV upgrade
+    const PITCH_RATE = 5.8; // rad/s at full deflection — high-KV upgrade
+    const ROLL_RATE = 6.2;  // rad/s at full deflection — high-KV upgrade
     yaw -= y * YAW_RATE * dt;
     pitch -= p * PITCH_RATE * dt;
     roll += r * ROLL_RATE * dt;
@@ -854,7 +854,7 @@
     // up when level. Derived to be consistent with the camera's own
     // rotation.order = 'YXZ' convention so "pitch forward" moves you the
     // same direction the camera is looking.
-    const thrust = t * 26; // max accel from motors
+    const thrust = t * 52; // max accel — high-KV motors (2700KV+)
 
     const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
     const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
@@ -876,7 +876,7 @@
     vel.y += (thrustY * thrust + GRAVITY) * dt;
 
     // drag
-    vel.multiplyScalar(1 - Math.min(1, 1.1*dt));
+    vel.multiplyScalar(1 - Math.min(1, 0.7*dt)); // lower drag — high-KV top speed
 
     const nextPos = pos.clone().addScaledVector(vel, dt);
     if (!collide(nextPos)){
@@ -892,7 +892,7 @@
     camera.rotation.order = 'YXZ';
     camera.rotation.y = yaw;
     camera.rotation.x = pitch;
-    camera.rotation.z = roll;
+    camera.rotation.z = -roll;  // negated: positive roll = tilt right from FPV perspective
 
     propellers.forEach(pr => pr.rotation.y += 40 * dt * (0.3 + t));
 
