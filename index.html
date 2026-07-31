@@ -285,7 +285,7 @@
 
   <!-- OSD -->
   <div style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
-    BETAFPV AIR65 // 30000KV SIM
+    BETAFPV AIR65 // 9300KV SIM
   </div>
   <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
     THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
@@ -864,7 +864,7 @@
 
     // Motor KV — raised to a 30000KV setup. KV chiefly drives motor RPM/thrust
     // headroom, so it scales max acceleration (top end speed & punch) below.
-    const MOTOR_KV = 30000;
+    const MOTOR_KV = 9300;
     const KV_REF = 2700; // reference KV the base 52 m/s^2 figure was tuned at
     const KV_SCALE = MOTOR_KV / KV_REF;
 
