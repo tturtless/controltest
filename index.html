@@ -285,7 +285,7 @@
 
   <!-- OSD -->
   <div style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
-    BETAFPV AIR65 // 2700KV SIM
+    BETAFPV AIR65 // 30000KV SIM
   </div>
   <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
     THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
@@ -304,6 +304,12 @@
   </svg>
 
   <button class="cal-btn secondary mono" id="flyExitBtn" style="position:absolute; top:14px; left:50%; transform:translateX(-50%);">Exit (ESC)</button>
+
+  <!-- camera angle control -->
+  <div style="position:absolute; bottom:16px; right:16px; display:flex; flex-direction:column; align-items:flex-end; gap:4px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:11.5px; text-shadow:0 0 6px rgba(0,0,0,0.9);">
+    <label for="camAngleSlider">CAM ANGLE: <span id="camAngleVal">20</span>&deg;</label>
+    <input type="range" id="camAngleSlider" min="0" max="45" step="1" value="20" style="width:150px;">
+  </div>
 </div>
 
 <div id="calOverlay">
@@ -641,16 +647,32 @@
   const flyCanvas = document.getElementById('flyCanvas');
   const flyOsd = document.getElementById('flyOsd');
   const flyMsg = document.getElementById('flyMsg');
+  const camAngleSlider = document.getElementById('camAngleSlider');
+  const camAngleVal = document.getElementById('camAngleVal');
 
   let renderer, scene, camera, drone, propellers = [];
   let obstacles = [];
   let flying = false;
   let animId = null;
 
+  // camera mount angle (degrees tilted "up" from the frame's flat plane, 0-45)
+  let camAngleDeg = 20;
+  camAngleSlider.addEventListener('input', () => {
+    camAngleDeg = parseFloat(camAngleSlider.value);
+    camAngleVal.textContent = camAngleDeg.toFixed(0);
+  });
+
   // physics state
   let pos = new THREE.Vector3(0, 3, 20);
   let vel = new THREE.Vector3(0, 0, 0);
-  let yaw = 0, pitch = 0, roll = 0; // radians, current attitude
+  // Attitude is stored as a quaternion, not separate yaw/pitch/roll floats.
+  // Stick rates are integrated directly in the CRAFT'S OWN body frame every
+  // frame (post-multiplying the quaternion), which is how a real acro flight
+  // controller works. This is what keeps roll/pitch/yaw feeling identical no
+  // matter how the craft is currently oriented — full flips, inverted flight,
+  // pitching straight up, etc. never "bug out" or swap axes, because there is
+  // no Euler-angle gimbal lock to fall into.
+  let orientation = new THREE.Quaternion();
   const GRAVITY = -9.8;
 
   const keys = {};
@@ -836,44 +858,46 @@
     // acro mode: sticks command a rotation RATE (deg/s equivalent), not a
     // clamped attitude angle, so full flips/rolls/loops are possible and the
     // craft holds whatever attitude you leave it at when sticks are centered.
-    const YAW_RATE = 4.2;   // rad/s at full deflection — high-KV upgrade
-    const PITCH_RATE = 5.8; // rad/s at full deflection — high-KV upgrade
-    const ROLL_RATE = 6.2;  // rad/s at full deflection — high-KV upgrade
-    yaw -= y * YAW_RATE * dt;
-    pitch -= p * PITCH_RATE * dt;
-    roll += r * ROLL_RATE * dt;
-    // wrap into -PI..PI for numeric hygiene (sin/cos are periodic, so this
-    // never changes the actual attitude, just keeps the numbers small)
-    const TAU = Math.PI * 2;
-    if (yaw > Math.PI) yaw -= TAU; else if (yaw < -Math.PI) yaw += TAU;
-    if (pitch > Math.PI) pitch -= TAU; else if (pitch < -Math.PI) pitch += TAU;
-    if (roll > Math.PI) roll -= TAU; else if (roll < -Math.PI) roll += TAU;
+    const YAW_RATE = 4.2;   // rad/s at full deflection
+    const PITCH_RATE = 5.8; // rad/s at full deflection
+    const ROLL_RATE = 6.2;  // rad/s at full deflection
+
+    // Motor KV — raised to a 30000KV setup. KV chiefly drives motor RPM/thrust
+    // headroom, so it scales max acceleration (top end speed & punch) below.
+    const MOTOR_KV = 30000;
+    const KV_REF = 2700; // reference KV the base 52 m/s^2 figure was tuned at
+    const KV_SCALE = MOTOR_KV / KV_REF;
+
+    // ---- body-rate integration (quaternion, no gimbal lock) ----
+    // Build the angular velocity the sticks are commanding, expressed in the
+    // CRAFT'S OWN local axes (X = pitch axis, Y = yaw axis, Z = roll axis).
+    // Because this is applied in body space every frame, roll/pitch/yaw
+    // always mean "rotate about the nose/the belly/the spine as they are
+    // right now" — identical behavior whether the craft is level, inverted,
+    // mid-flip, or pitched straight up. That's what keeps stick orientation
+    // "solid" through full-deflection maneuvers instead of bugging out.
+    const bodyAngVel = new THREE.Vector3(
+      -p * PITCH_RATE,   // pitch about local X
+      -y * YAW_RATE,     // yaw about local Y
+      -r * ROLL_RATE      // roll about local Z
+    );
+    const angSpeed = bodyAngVel.length();
+    if (angSpeed > 1e-6) {
+      const axis = bodyAngVel.clone().normalize();
+      const dq = new THREE.Quaternion().setFromAxisAngle(axis, angSpeed * dt);
+      orientation.multiply(dq); // post-multiply = rotate in the craft's own frame
+      orientation.normalize();
+    }
 
     // thrust acts along the drone's body "up" axis (like a real multirotor),
-    // which tilts forward/sideways as pitch/roll change, and points straight
-    // up when level. Derived to be consistent with the camera's own
-    // rotation.order = 'YXZ' convention so "pitch forward" moves you the
-    // same direction the camera is looking.
-    const thrust = t * 52; // max accel — high-KV motors (2700KV+)
+    // found by rotating world-up through the current attitude quaternion —
+    // this stays correct at any orientation, including upside down.
+    const thrust = t * 52 * KV_SCALE; // max accel — 30000KV motors
+    const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
 
-    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
-    const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
-    const cosR = Math.cos(roll), sinR = Math.sin(roll);
-
-    // body "up" vector (0,1,0) rotated by roll (about local Z), then pitch (about local X), then yaw (about world Y)
-    // roll tilts up vector sideways, pitch tilts it forward/back
-    let ux = sinR * cosP;
-    let uy = cosR * cosP;
-    let uz = sinP;
-
-    // apply yaw (matching camera's YXZ order & THREE's convention where yaw=0 looks toward -Z)
-    const thrustX = ux * cosY + uz * sinY;
-    const thrustY = uy;
-    const thrustZ = -ux * sinY + uz * cosY;
-
-    vel.x += thrustX * thrust * dt;
-    vel.z += thrustZ * thrust * dt;
-    vel.y += (thrustY * thrust + GRAVITY) * dt;
+    vel.x += bodyUp.x * thrust * dt;
+    vel.z += bodyUp.z * thrust * dt;
+    vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
 
     // drag
     vel.multiplyScalar(1 - Math.min(1, 0.7*dt)); // lower drag — high-KV top speed
@@ -889,10 +913,15 @@
     if (pos.y < 0.15){ pos.y = 0.15; vel.y = Math.max(0, vel.y); }
 
     camera.position.copy(pos);
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y = yaw;
-    camera.rotation.x = pitch;
-    camera.rotation.z = -roll;  // negated: positive roll = tilt right from FPV perspective
+    // Mounted FPV camera tilt: an extra local-X rotation on top of the
+    // craft's own attitude, up to 45 degrees "up". Applied AFTER the body
+    // orientation (local space), so it never interferes with roll/pitch/yaw
+    // control feel — it's purely a camera mount offset, same as on a real quad.
+    const camOffset = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      THREE.MathUtils.degToRad(camAngleDeg)
+    );
+    camera.quaternion.copy(orientation).multiply(camOffset);
 
     propellers.forEach(pr => pr.rotation.y += 40 * dt * (0.3 + t));
 
@@ -908,7 +937,8 @@
     resizeRenderer();
     pos.set(0, 3, 20);
     vel.set(0,0,0);
-    yaw = Math.PI; pitch = 0; roll = 0;
+    orientation.identity();
+    orientation.setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI); // face spawn-forward
     kbThrottle = 0;
     flying = true;
     lastTime = null;
