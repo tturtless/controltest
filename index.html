@@ -29,7 +29,6 @@
   }
   .mono { font-family: 'Share Tech Mono', monospace; }
 
-  /* faint scanline / grid atmosphere */
   body::before{
     content: "";
     position: fixed; inset: 0;
@@ -96,7 +95,10 @@
     font-weight: 600;
   }
 
-  /* ---- HUD ---- */
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+
   #hudWrap{ display:flex; flex-direction: column; align-items: center; gap: 14px; }
   #hud{
     width: 100%;
@@ -105,41 +107,22 @@
     display: block;
   }
   .readout-row{
-    display: flex; gap: 22px; flex-wrap: wrap; justify-content: center;
+    display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
     font-family: 'Share Tech Mono', monospace;
     font-size: 13px;
     color: var(--text-dim);
   }
   .readout-row b{ color: var(--cyan); font-weight: 400; }
 
-  /* ---- throttle ---- */
-  .throttle-col{ display:flex; flex-direction: column; align-items:center; gap: 6px; }
-  .throttle-track{
-    width: 22px; height: 220px;
-    border: 1px solid var(--line);
-    border-radius: 3px;
-    position: relative;
-    background: linear-gradient(180deg, rgba(57,255,157,0.04), transparent);
-    margin: 0 auto;
-  }
-  .throttle-fill{
-    position: absolute; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(180deg, var(--hud), var(--hud-dim));
-    box-shadow: 0 0 10px rgba(57,255,157,0.5);
-    height: 0%;
-    transition: height 40ms linear;
-  }
-
-  /* ---- axis / calibration table ---- */
   table{ width: 100%; border-collapse: collapse; font-family:'Share Tech Mono',monospace; font-size: 12.5px; }
   th, td{ padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
   th{ color: var(--text-dim); font-weight: 400; text-transform: uppercase; letter-spacing: 1px; font-size: 11px;}
   td.val{ color: var(--cyan); }
   .bar-cell{ width: 90px; }
   .bar{ height: 6px; background: var(--line); border-radius: 3px; position: relative; overflow: hidden;}
-  .bar i{ position:absolute; top:0; bottom:0; background: var(--hud); width: 0%; }
+  .bar i{ position:absolute; top:0; bottom:0; background: var(--hud); width: 2px; }
 
-  select, input[type="checkbox"]{
+  select{
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--line);
@@ -171,6 +154,24 @@
     box-shadow: 0 0 10px rgba(255,176,32,0.6);
   }
 
+  .cal-btn{
+    background: transparent;
+    border: 1px solid var(--hud-dim);
+    color: var(--hud);
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 1px;
+    font-size: 12.5px;
+    padding: 7px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .cal-btn:hover{ background: rgba(57,255,157,0.1); }
+  .cal-btn.secondary{
+    border-color: var(--line);
+    color: var(--text-dim);
+  }
+
   footer{
     position: relative; z-index: 1;
     text-align: center;
@@ -179,7 +180,6 @@
     padding: 0 20px 40px;
     font-family: 'Share Tech Mono', monospace;
   }
-  footer a{ color: var(--cyan); }
 
   .hint{
     font-size: 12.5px;
@@ -187,6 +187,50 @@
     line-height: 1.5;
     margin-top: 10px;
   }
+
+  /* ---- calibration overlay ---- */
+  #calOverlay{
+    position: fixed; inset: 0;
+    background: rgba(3,6,6,0.86);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 20px;
+  }
+  #calOverlay.show{ display: flex; }
+  .cal-card{
+    width: 100%;
+    max-width: 460px;
+    background: var(--panel);
+    border: 1px solid var(--hud-dim);
+    border-radius: 6px;
+    padding: 26px 26px 22px;
+    box-shadow: 0 0 40px rgba(57,255,157,0.08);
+  }
+  .cal-step{
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--hud);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .cal-instruction{
+    font-size: 18px;
+    line-height: 1.5;
+    margin-bottom: 22px;
+    min-height: 80px;
+  }
+  .cal-actions{ display:flex; gap: 10px; justify-content: flex-end; }
+  .cal-progress{
+    display:flex; gap:6px; margin-top:18px;
+  }
+  .cal-dot{
+    flex: 1; height: 3px; background: var(--line); border-radius: 2px;
+  }
+  .cal-dot.done{ background: var(--hud); }
+  .cal-dot.active{ background: var(--amber); }
 </style>
 </head>
 <body>
@@ -198,22 +242,25 @@
 
 <main>
   <section class="panel" id="hudWrap">
-    <h2>Attitude / Position</h2>
+    <div class="panel-head">
+      <h2 style="margin-bottom:0;">Attitude / Position</h2>
+      <button class="cal-btn mono" id="startCalBtn">Start Calibration</button>
+    </div>
     <svg id="hud" viewBox="0 0 300 300"></svg>
     <div class="readout-row mono">
-      <span>ROLL/YAW: <b id="rX">0.00</b></span>
-      <span>PITCH: <b id="rY">0.00</b></span>
+      <span>ROLL: <b id="rRoll">0.00</b></span>
+      <span>PITCH: <b id="rPitch">0.00</b></span>
+      <span>YAW: <b id="rYaw">0.00</b></span>
       <span>THROTTLE: <b id="rT">0.00</b></span>
     </div>
-    <div class="hint">
-      The craft marker moves with the axes chosen below (defaults to axes 2 &amp; 3, the right stick
-      on most sticks/transmitters). If your beta controller maps differently, use the dropdowns
-      to reassign axes and watch the live values on the right update to find the correct ones.
+    <div class="hint" id="calStatusHint">
+      Not calibrated yet — using best-guess axis defaults. Click Start Calibration and follow the
+      prompts (center sticks, then pitch, roll, yaw, throttle) for correct, non-inverted control.
     </div>
   </section>
 
   <section class="panel">
-    <h2>Axes</h2>
+    <h2>Axes <span style="font-weight:400;text-transform:none;letter-spacing:0;">(manual override)</span></h2>
     <table>
       <thead><tr><th>#</th><th>Value</th><th class="bar-cell">Level</th><th>Use as</th></tr></thead>
       <tbody id="axisTable"></tbody>
@@ -230,21 +277,58 @@
   plugged in via USB.
 </footer>
 
+<div id="calOverlay">
+  <div class="cal-card">
+    <div class="cal-step" id="calStepLabel">STEP 1 / 5</div>
+    <div class="cal-instruction" id="calInstruction">Center both sticks and set throttle to its lowest / idle position. Hold everything still, then continue.</div>
+    <div class="cal-actions">
+      <button class="cal-btn secondary mono" id="calCancelBtn">Cancel</button>
+      <button class="cal-btn mono" id="calNextBtn">Continue</button>
+    </div>
+    <div class="cal-progress" id="calProgress"></div>
+  </div>
+</div>
+
 <script>
 (function(){
   const statusEl = document.getElementById('status');
   const axisTableBody = document.getElementById('axisTable');
   const buttonGrid = document.getElementById('buttonGrid');
-  const rX = document.getElementById('rX');
-  const rY = document.getElementById('rY');
+  const rRoll = document.getElementById('rRoll');
+  const rPitch = document.getElementById('rPitch');
+  const rYaw = document.getElementById('rYaw');
   const rT = document.getElementById('rT');
+  const calStatusHint = document.getElementById('calStatusHint');
 
   let gpIndex = null;
   let axisCount = 0;
   let buttonCount = 0;
+  let calibrated = false;
 
-  // which axis index drives which control -- user adjustable
-  let cfg = { x: 2, y: 3, throttle: 1, invertX: false, invertY: true, invertT: false };
+  // channel config: each channel maps to {axis, center, delta}
+  // normalized signed value = clamp((raw-center)/abs(delta), -1, 1) * sign(delta)... see computeSigned()
+  // default best-guess mapping before calibration
+  let cfg = {
+    roll:     { axis: 2, center: 0,  delta: 1 },
+    pitch:    { axis: 3, center: 0,  delta: -1 },
+    yaw:      { axis: 0, center: 0,  delta: 1 },
+    throttle: { axis: 1, center: -1, delta: 2 }
+  };
+
+  function computeSigned(gp, ch){
+    if (!ch) return 0;
+    const raw = gp.axes[ch.axis];
+    if (raw === undefined || ch.delta === 0) return 0;
+    let n = (raw - ch.center) / Math.abs(ch.delta) * Math.sign(ch.delta || 1);
+    return Math.max(-1, Math.min(1, n));
+  }
+  function computeThrottle(gp, ch){
+    if (!ch) return 0;
+    const raw = gp.axes[ch.axis];
+    if (raw === undefined || ch.delta === 0) return 0;
+    let n = (raw - ch.center) / ch.delta;
+    return Math.max(0, Math.min(1, n));
+  }
 
   // ---------- HUD (SVG) ----------
   const NS = "http://www.w3.org/2000/svg";
@@ -255,24 +339,18 @@
     return el;
   }
 
-  // static rings
   hud.appendChild(svgEl('circle', {cx:150, cy:150, r:140, fill:'none', stroke:'#17282b', 'stroke-width':1}));
   hud.appendChild(svgEl('circle', {cx:150, cy:150, r:95,  fill:'none', stroke:'#17282b', 'stroke-width':1}));
   hud.appendChild(svgEl('circle', {cx:150, cy:150, r:50,  fill:'none', stroke:'#17282b', 'stroke-width':1}));
   hud.appendChild(svgEl('line', {x1:150,y1:10,x2:150,y2:290, stroke:'#12201f', 'stroke-width':1}));
   hud.appendChild(svgEl('line', {x1:10,y1:150,x2:290,y2:150, stroke:'#12201f', 'stroke-width':1}));
 
-  // throttle ring (arc-ish bar drawn as circle progress) -- represented as vertical bar to the left instead
-  const throttleTrack = svgEl('rect', {x:20, y:40, width:10, height:220, rx:3, fill:'none', stroke:'#17282b'});
-  hud.appendChild(throttleTrack);
+  hud.appendChild(svgEl('rect', {x:20, y:40, width:10, height:220, rx:3, fill:'none', stroke:'#17282b'}));
   const throttleFill = svgEl('rect', {x:20, y:260, width:10, height:0, rx:3, fill:'#39ff9d'});
   hud.appendChild(throttleFill);
 
-  // craft marker group: a small quad/drone glyph
   const craft = svgEl('g', {});
-  const glow = svgEl('circle', {cx:0, cy:0, r:26, fill:'rgba(57,255,157,0.12)'});
-  craft.appendChild(glow);
-  // body
+  craft.appendChild(svgEl('circle', {cx:0, cy:0, r:26, fill:'rgba(57,255,157,0.12)'}));
   craft.appendChild(svgEl('line', {x1:-16,y1:-16,x2:16,y2:16, stroke:'#39ff9d','stroke-width':2.5}));
   craft.appendChild(svgEl('line', {x1:-16,y1:16,x2:16,y2:-16, stroke:'#39ff9d','stroke-width':2.5}));
   craft.appendChild(svgEl('circle', {cx:-16,cy:-16,r:5,fill:'#4dd8ff'}));
@@ -280,24 +358,24 @@
   craft.appendChild(svgEl('circle', {cx:-16,cy:16,r:5,fill:'#4dd8ff'}));
   craft.appendChild(svgEl('circle', {cx:16,cy:16,r:5,fill:'#4dd8ff'}));
   craft.appendChild(svgEl('circle', {cx:0,cy:0,r:4,fill:'#ffb020'}));
+  // heading tick to make yaw rotation visible
+  craft.appendChild(svgEl('line', {x1:0,y1:0,x2:0,y2:-30, stroke:'#ff4d5e','stroke-width':2}));
   hud.appendChild(craft);
 
-  function setCraftPosition(nx, ny){
-    // nx, ny in [-1, 1]
+  function setCraft(nx, ny, yawDeg){
     const cx = 150 + nx * 130;
     const cy = 150 + ny * 130;
-    craft.setAttribute('transform', `translate(${cx},${cy})`);
+    craft.setAttribute('transform', `translate(${cx},${cy}) rotate(${yawDeg})`);
   }
-  setCraftPosition(0,0);
+  setCraft(0,0,0);
 
   function setThrottle(t){
-    // t in [0,1]
     const h = Math.max(0, Math.min(1, t)) * 220;
     throttleFill.setAttribute('height', h);
     throttleFill.setAttribute('y', 260 - h);
   }
 
-  // ---------- Gamepad handling ----------
+  // ---------- Gamepad connection ----------
   window.addEventListener('gamepadconnected', (e) => {
     gpIndex = e.gamepad.index;
     statusEl.textContent = (e.gamepad.id || 'CONTROLLER').toUpperCase().slice(0,42);
@@ -309,6 +387,15 @@
     statusEl.classList.remove('ok'); statusEl.classList.add('no');
   });
 
+  function getActiveGamepad(){
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let gp = null;
+    if (gpIndex !== null) gp = pads[gpIndex];
+    if (!gp) for (const p of pads) if (p) { gp = p; gpIndex = p.index; break; }
+    return gp;
+  }
+
+  // ---------- manual axis override table ----------
   function buildAxisRow(i){
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -318,23 +405,22 @@
       <td>
         <select id="axUse${i}" class="mono">
           <option value="">--</option>
-          <option value="x">Roll / X</option>
-          <option value="y">Pitch / Y</option>
+          <option value="roll">Roll</option>
+          <option value="pitch">Pitch</option>
+          <option value="yaw">Yaw</option>
           <option value="throttle">Throttle</option>
         </select>
       </td>`;
     axisTableBody.appendChild(tr);
     const sel = tr.querySelector('select');
-    if (i === cfg.x) sel.value = 'x';
-    if (i === cfg.y) sel.value = 'y';
-    if (i === cfg.throttle) sel.value = 'throttle';
+    for (const ch of ['roll','pitch','yaw','throttle']) if (cfg[ch] && cfg[ch].axis === i) sel.value = ch;
     sel.addEventListener('change', () => {
       const use = sel.value;
-      if (use) cfg[use] = i;
-      // clear that role from any other axis' dropdown
       document.querySelectorAll('#axisTable select').forEach(s => {
         if (s !== sel && s.value === use && use) s.value = '';
       });
+      if (use === 'throttle') cfg[use] = { axis: i, center: -1, delta: 2 };
+      else if (use) cfg[use] = { axis: i, center: 0, delta: 1 };
     });
   }
 
@@ -361,13 +447,112 @@
     buildButtonLeds(n);
   }
 
-  function poll(){
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    let gp = null;
-    if (gpIndex !== null) gp = pads[gpIndex];
+  // ---------- Calibration wizard ----------
+  const calOverlay = document.getElementById('calOverlay');
+  const calInstruction = document.getElementById('calInstruction');
+  const calStepLabel = document.getElementById('calStepLabel');
+  const calNextBtn = document.getElementById('calNextBtn');
+  const calCancelBtn = document.getElementById('calCancelBtn');
+  const calProgress = document.getElementById('calProgress');
+  const startCalBtn = document.getElementById('startCalBtn');
+
+  const calSteps = [
+    { key: 'center',   text: 'Center both sticks and set throttle to its lowest / idle position. Hold everything still, then continue.' },
+    { key: 'pitch',    text: 'Push the PITCH stick fully forward (away from you) and hold it there, then capture.' },
+    { key: 'roll',     text: 'Push the ROLL stick fully to the RIGHT and hold it there, then capture.' },
+    { key: 'yaw',      text: 'Push the YAW stick fully to the RIGHT and hold it there, then capture.' },
+    { key: 'throttle', text: 'Raise the THROTTLE stick to full and hold it there, then capture.' }
+  ];
+  let calStep = 0;
+  let calCenterSnapshot = null;
+  let calAssignedAxes = [];
+  let calResult = {};
+
+  function renderCalProgress(){
+    calProgress.innerHTML = '';
+    calSteps.forEach((s, i) => {
+      const d = document.createElement('div');
+      d.className = 'cal-dot' + (i < calStep ? ' done' : (i === calStep ? ' active' : ''));
+      calProgress.appendChild(d);
+    });
+  }
+
+  function openCalibration(){
+    const gp = getActiveGamepad();
     if (!gp) {
-      for (const p of pads) if (p) { gp = p; gpIndex = p.index; break; }
+      alert('No controller detected yet. Plug it in and move a stick or press a button first.');
+      return;
     }
+    calStep = 0;
+    calCenterSnapshot = null;
+    calAssignedAxes = [];
+    calResult = {};
+    calStepLabel.textContent = 'STEP 1 / ' + calSteps.length;
+    calInstruction.textContent = calSteps[0].text;
+    calNextBtn.textContent = 'Continue';
+    renderCalProgress();
+    calOverlay.classList.add('show');
+  }
+
+  function closeCalibration(){
+    calOverlay.classList.remove('show');
+  }
+
+  function advanceCalibration(){
+    const gp = getActiveGamepad();
+    if (!gp) { closeCalibration(); return; }
+    const axes = gp.axes.slice();
+    const stepKey = calSteps[calStep].key;
+
+    if (stepKey === 'center') {
+      calCenterSnapshot = axes;
+    } else {
+      let bestIdx = -1, bestDelta = 0;
+      for (let i = 0; i < axes.length; i++) {
+        if (calAssignedAxes.includes(i)) continue;
+        const d = axes[i] - (calCenterSnapshot[i] !== undefined ? calCenterSnapshot[i] : 0);
+        if (Math.abs(d) > Math.abs(bestDelta)) { bestDelta = d; bestIdx = i; }
+      }
+      if (bestIdx === -1 || Math.abs(bestDelta) < 0.15) {
+        alert('Didn\'t detect enough stick movement for this step — try pushing it further to the extreme, then capture again.');
+        return;
+      }
+      calAssignedAxes.push(bestIdx);
+      if (stepKey === 'throttle') {
+        calResult.throttle = { axis: bestIdx, center: calCenterSnapshot[bestIdx], delta: bestDelta };
+      } else {
+        calResult[stepKey] = { axis: bestIdx, center: calCenterSnapshot[bestIdx], delta: bestDelta };
+      }
+    }
+
+    calStep++;
+    if (calStep >= calSteps.length) {
+      cfg = calResult;
+      calibrated = true;
+      calStatusHint.textContent = 'Calibrated. Roll, pitch, yaw and throttle now match your controller\u2019s actual axes and directions.';
+      // reflect assignment in the manual override table dropdowns
+      document.querySelectorAll('#axisTable select').forEach(s => s.value = '');
+      for (const ch of ['roll','pitch','yaw','throttle']) {
+        const a = cfg[ch] && cfg[ch].axis;
+        const sel = document.getElementById('axUse' + a);
+        if (sel) sel.value = ch;
+      }
+      closeCalibration();
+      return;
+    }
+
+    calStepLabel.textContent = 'STEP ' + (calStep+1) + ' / ' + calSteps.length;
+    calInstruction.textContent = calSteps[calStep].text;
+    renderCalProgress();
+  }
+
+  startCalBtn.addEventListener('click', openCalibration);
+  calCancelBtn.addEventListener('click', closeCalibration);
+  calNextBtn.addEventListener('click', advanceCalibration);
+
+  // ---------- main poll loop ----------
+  function poll(){
+    const gp = getActiveGamepad();
 
     if (gp) {
       if (statusEl.classList.contains('no')) {
@@ -382,14 +567,8 @@
         const valEl = document.getElementById('axVal'+i);
         const barEl = document.getElementById('axBar'+i);
         if (valEl) valEl.textContent = v.toFixed(2);
-        if (barEl){
-          const pct = ((v+1)/2)*100;
-          barEl.style.left = pct + '%';
-          barEl.style.width = (100-pct) > pct ? '2px' : '2px';
-          barEl.style.left = pct + '%';
-        }
+        if (barEl) barEl.style.left = (((v+1)/2)*100) + '%';
       }
-
       for (let i=0;i<gp.buttons.length;i++){
         const el = document.getElementById('btn'+i);
         if (!el) continue;
@@ -397,18 +576,19 @@
         el.classList.toggle('on', pressed);
       }
 
-      let x = gp.axes[cfg.x] || 0;
-      let y = gp.axes[cfg.y] || 0;
-      let t = gp.axes[cfg.throttle] || 0;
-      if (cfg.invertX) x = -x;
-      if (cfg.invertY) y = -y;
-      let tNorm = cfg.invertT ? (1 - (t+1)/2) : (t+1)/2;
+      const roll = computeSigned(gp, cfg.roll);
+      const pitch = computeSigned(gp, cfg.pitch);
+      const yaw = computeSigned(gp, cfg.yaw);
+      const throttle = computeThrottle(gp, cfg.throttle);
 
-      setCraftPosition(x, y);
-      setThrottle(tNorm);
-      rX.textContent = x.toFixed(2);
-      rY.textContent = y.toFixed(2);
-      rT.textContent = tNorm.toFixed(2);
+      // pushing pitch forward (positive) moves the craft up on screen; roll positive moves it right
+      setCraft(roll, -pitch, yaw * 45);
+      setThrottle(throttle);
+
+      rRoll.textContent = roll.toFixed(2);
+      rPitch.textContent = pitch.toFixed(2);
+      rYaw.textContent = yaw.toFixed(2);
+      rT.textContent = throttle.toFixed(2);
     }
 
     requestAnimationFrame(poll);
