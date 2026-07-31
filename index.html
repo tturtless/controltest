@@ -689,7 +689,7 @@
   // pitching straight up, etc. never "bug out" or swap axes, because there is
   // no Euler-angle gimbal lock to fall into.
   let orientation = new THREE.Quaternion();
-  const GRAVITY = -22.0; // strong realistic free-fall (~2.2× real, accounts for sim scale)
+  const GRAVITY = -11.76; // raised 20% from real-world -9.8
 
   const keys = {};
   window.addEventListener('keydown', (e) => { keys[e.code] = true; if (flying && e.code === 'Escape') exitFly(); });
@@ -846,123 +846,6 @@
       hub.rotation.x = 0.2;
       scene.add(hub);
     })(60, -20);
-
-    // ---- ADDITIONAL STRUCTURES ----
-
-    // --- Slalom pole line: 10 tall poles in a straight line to weave through ---
-    const slalomMat = new THREE.MeshStandardMaterial({ color: 0xff6600 });
-    for (let i = 0; i < 10; i++){
-      addCylinder(-80 + i * 9, 5, -50, 0.4, 10, slalomMat);
-    }
-
-    // --- Low race gate corridor: 5 box gates in a line, fly through each ---
-    const raceGateMat = new THREE.MeshStandardMaterial({ color: 0xffdd00 });
-    for (let i = 0; i < 5; i++){
-      const gx = 60, gz = -20 - i * 18;
-      // left post
-      addBox(gx - 4, 4, gz, 0.5, 8, 0.5, raceGateMat);
-      // right post
-      addBox(gx + 4, 4, gz, 0.5, 8, 0.5, raceGateMat);
-      // top bar
-      addBox(gx, 8, gz, 8.5, 0.5, 0.5, raceGateMat);
-    }
-
-    // --- Tall bridge / arch: fly under the span ---
-    const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
-    // two towers
-    addBox(-10, 10, -130, 1.5, 20, 1.5, bridgeMat);
-    addBox( 10, 10, -130, 1.5, 20, 1.5, bridgeMat);
-    // deck slab
-    addBox(0, 20, -130, 24, 1, 4, bridgeMat);
-    // approach ramps (angled boxes)
-    addBox(-20, 10, -130, 12, 1, 4, bridgeMat);
-    addBox( 20, 10, -130, 12, 1, 4, bridgeMat);
-    // cables (thin vertical rods)
-    for (let cx = -8; cx <= 8; cx += 4){
-      addBox(cx, 14, -130, 0.18, 8, 0.18, bridgeMat);
-    }
-
-    // --- Skyscraper cluster: three tall buildings to fly between ---
-    const buildMat1 = new THREE.MeshStandardMaterial({ color: 0x4466aa });
-    const buildMat2 = new THREE.MeshStandardMaterial({ color: 0x336688 });
-    const buildMat3 = new THREE.MeshStandardMaterial({ color: 0x557799 });
-    addBox(-55, 15, -120, 8, 30, 8, buildMat1);
-    addBox(-40, 20, -110, 6, 40, 6, buildMat2);
-    addBox(-62, 10, -100, 7, 20, 7, buildMat3);
-    // roof details
-    addBox(-40, 41, -110, 1.5, 4, 1.5, new THREE.MeshStandardMaterial({ color: 0xff4d5e }));
-
-    // --- Floating ring chain: five rings at different heights forming a 3D course ---
-    const chainMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
-    const chainMat2 = new THREE.MeshStandardMaterial({ color: 0xffb020 });
-    const chainMat3 = new THREE.MeshStandardMaterial({ color: 0x39ff9d });
-    const chainMat4 = new THREE.MeshStandardMaterial({ color: 0x4dd8ff });
-    const chainMat5 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
-    addRingGate(-10, 6, -160, 4,   chainMat1);
-    addRingGate(-10, 10, -175, 4,  chainMat2);
-    addRingGate(-10, 14, -190, 4,  chainMat3);
-    addRingGate(-10, 10, -205, 4,  chainMat4);
-    addRingGate(-10, 6,  -220, 4,  chainMat5);
-
-    // --- Radio tower: tall lattice-like structure to orbit ---
-    const towerMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
-    addCylinder(85, 20, -90, 0.6, 40, towerMat);
-    // cross braces at intervals
-    for (let ht = 5; ht <= 35; ht += 8){
-      addBox(85, ht, -90, 6, 0.3, 0.3, towerMat);
-      addBox(85, ht, -90, 0.3, 0.3, 6, towerMat);
-    }
-    // blinking tip (red cylinder)
-    addCylinder(85, 41, -90, 0.35, 2, new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff0000, emissiveIntensity: 1.2 }));
-
-    // --- Low canyon walls: two long parallel walls, fly the gap ---
-    const canyonMat = new THREE.MeshStandardMaterial({ color: 0xc8a060 });
-    addBox( 6, 4, -260, 1, 8, 70, canyonMat);
-    addBox(-6, 4, -260, 1, 8, 70, canyonMat);
-    // canyon floor ramps (boxes at ground level)
-    addBox(0, 0.5, -225, 10, 1, 1, canyonMat);
-    addBox(0, 0.5, -295, 10, 1, 1, canyonMat);
-
-    // --- Spiral tower: stacked cylinders stepping outward like a corkscrew ---
-    const spiralMat = new THREE.MeshStandardMaterial({ color: 0xdd88ff });
-    for (let s = 0; s < 8; s++){
-      const angle = (s / 8) * Math.PI * 2;
-      const sr = 3;
-      const sx = 30 + Math.cos(angle) * sr;
-      const sz = -155 + Math.sin(angle) * sr;
-      const sy = s * 2 + 1;
-      addBox(sx, sy, sz, 5, 2, 5, spiralMat);
-    }
-
-    // --- Pipe / tunnel S-bend: two offset tunnel sections you thread through ---
-    const pipeMat = new THREE.MeshStandardMaterial({ color: 0x556688 });
-    // section 1 (Z-axis aligned)
-    addBox(50 - 3, 3.5, -75, 0.6, 7, 14, pipeMat);
-    addBox(50 + 3, 3.5, -75, 0.6, 7, 14, pipeMat);
-    addBox(50,     7.3, -75, 7.2, 0.6, 14, pipeMat);
-    // section 2 (offset to the side, X-axis aligned)
-    addBox(50, 3.5, -85 - 3, 14, 7, 0.6, pipeMat);
-    addBox(50, 3.5, -85 + 3, 14, 7, 0.6, pipeMat);
-    addBox(50, 7.3, -85,     14, 0.6, 7.2, pipeMat);
-
-    // --- Low-flying speed track: flat gates almost at ground level ---
-    const speedMat = new THREE.MeshStandardMaterial({ color: 0xff2266 });
-    for (let i = 0; i < 6; i++){
-      const gx2 = -20, gz2 = -30 - i * 14;
-      addBox(gx2 - 4, 2, gz2, 0.5, 4, 0.5, speedMat);
-      addBox(gx2 + 4, 2, gz2, 0.5, 4, 0.5, speedMat);
-      addBox(gx2, 4, gz2, 8.5, 0.5, 0.5, speedMat);
-    }
-
-    // --- Barn structure: large open shed with two wide openings ---
-    const barnMat = new THREE.MeshStandardMaterial({ color: 0x8b3a22 });
-    const barnRoofMat = new THREE.MeshStandardMaterial({ color: 0x5a1f0f });
-    const bx = 90, bz = -55;
-    addBox(bx,      5, bz - 10, 0.6, 10, 0.6, barnMat); // back left
-    addBox(bx + 18, 5, bz - 10, 0.6, 10, 0.6, barnMat); // back right
-    addBox(bx,      5, bz + 10, 0.6, 10, 0.6, barnMat); // front left
-    addBox(bx + 18, 5, bz + 10, 0.6, 10, 0.6, barnMat); // front right
-    addBox(bx + 9,  10.3, bz, 19.2, 0.6, 20.6, barnRoofMat); // roof
 
     buildDrone();
   }
@@ -1136,12 +1019,8 @@
     vel.z += bodyUp.z * thrust * dt;
     vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
 
-    // drag — very low so horizontal momentum carries far after throttle release,
-    // matching real FPV where a speeding quad coasts a long way in the direction
-    // it was already traveling. Vertical drag slightly higher to prevent infinite climb.
-    const speed = vel.length();
-    const dragCoeff = 0.08 + speed * 0.004; // speed-dependent drag (air resistance)
-    vel.multiplyScalar(1 - Math.min(1, dragCoeff * dt));
+    // drag
+    vel.multiplyScalar(1 - Math.min(1, 0.7*dt)); // lower drag — high-KV top speed
 
     const nextPos = pos.clone().addScaledVector(vel, dt);
     if (!collide(nextPos)){
