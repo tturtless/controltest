@@ -847,6 +847,130 @@
       scene.add(hub);
     })(60, -20);
 
+    // ================================================================
+    // ADRENALINE LAYER — extreme-flight structures woven through, over,
+    // under, and around the original layout. Purely additive — none of
+    // the existing map geometry above is modified.
+    // ================================================================
+    const monoMat   = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6, metalness: 0.25 });
+    const monoEdgeMat = new THREE.MeshStandardMaterial({ color: 0x121417, roughness: 0.8 });
+    const neonCyan  = new THREE.MeshStandardMaterial({ color: 0x4dd8ff, emissive: 0x1fa9e0, emissiveIntensity: 1.4 });
+    const neonRed   = new THREE.MeshStandardMaterial({ color: 0xff4d5e, emissive: 0xb01020, emissiveIntensity: 1.4 });
+    const neonAmber = new THREE.MeshStandardMaterial({ color: 0xffb020, emissive: 0xa06000, emissiveIntensity: 1.4 });
+    const neonGreen = new THREE.MeshStandardMaterial({ color: 0x39ff9d, emissive: 0x14a866, emissiveIntensity: 1.4 });
+    const glassMat  = new THREE.MeshStandardMaterial({ color: 0x88ccdd, transparent: true, opacity: 0.18, roughness: 0.1, metalness: 0.1 });
+
+    // glowing kinetic guide-line: thin, purely visual (non-colliding) rail
+    // segments strung through the course to mark the fast line.
+    function guideLine(points, mat){
+      for (let i = 0; i < points.length - 1; i++){
+        const a = points[i], b = points[i+1];
+        const dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2];
+        const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if (len < 0.001) continue;
+        const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2, mz = (a[2]+b[2])/2;
+        const geo = new THREE.CylinderGeometry(0.09, 0.09, len, 6);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(mx, my, mz);
+        mesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0,1,0),
+          new THREE.Vector3(dx,dy,dz).normalize()
+        );
+        scene.add(mesh); // visual only — not added to obstacles
+      }
+    }
+
+    // massive hollowed-out monolith: a giant tower with a square flight
+    // shaft bored straight through it, glowing threshold markers, and
+    // punched window-holes for darting sideways through as well.
+    (function buildMonolith(mx, mz){
+      const OUTER = 22, HEIGHT = 70, BORE = 9;
+      const wallT = (OUTER - BORE) / 2;
+      addBox(mx, HEIGHT/2, mz - OUTER/2 + wallT/2, OUTER, HEIGHT, wallT, monoMat);
+      addBox(mx, HEIGHT/2, mz + OUTER/2 - wallT/2, OUTER, HEIGHT, wallT, monoMat);
+      addBox(mx - OUTER/2 + wallT/2, HEIGHT/2, mz, wallT, HEIGHT, BORE, monoMat);
+      addBox(mx + OUTER/2 - wallT/2, HEIGHT/2, mz, wallT, HEIGHT, BORE, monoMat);
+      addBox(mx, HEIGHT + 1.2, mz, OUTER + 4, 2.4, OUTER + 4, monoEdgeMat);
+      [18, 34, 50].forEach(hy => {
+        const gm = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 0.3), glassMat);
+        gm.position.set(mx - OUTER/2 + wallT/2, hy, mz);
+        scene.add(gm);
+      });
+      guideLine([[mx-BORE/2, 4, mz-BORE/2],[mx-BORE/2, HEIGHT-4, mz-BORE/2]], neonCyan);
+      guideLine([[mx+BORE/2, 4, mz+BORE/2],[mx+BORE/2, HEIGHT-4, mz+BORE/2]], neonCyan);
+    })(-90, -70);
+
+    // razor-thin archways: a chain of tight stone arches to thread at
+    // speed, each nudged for a slaloming line.
+    (function buildRazorArches(sx, sz, count){
+      const archMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.7 });
+      for (let i = 0; i < count; i++){
+        const cx = sx + i * 16;
+        const cz = sz + Math.sin(i*0.7) * 10;
+        const cy = 6 + Math.sin(i*0.9) * 2.5;
+        addBox(cx - 3.2, cy, cz, 0.5, 8, 0.5, archMat);
+        addBox(cx + 3.2, cy, cz, 0.5, 8, 0.5, archMat);
+        addBox(cx, cy + 4.1, cz, 6.9, 0.5, 0.5, archMat);
+        guideLine([[cx, cy-3.8, cz],[cx, cy+3.8, cz]], neonAmber);
+      }
+    })(20, -140, 6);
+
+    // cavernous subterranean flight shaft: dive into a surface pit and
+    // rip through a long underground corridor.
+    (function buildUndergroundShaft(sx, sz){
+      const shaftMat = new THREE.MeshStandardMaterial({ color: 0x3a3630, roughness: 0.9 });
+      const pitDepth = 26, shaftW = 10, shaftH = 9, shaftLen = 70;
+      addBox(sx - shaftW/2 - 0.5, -pitDepth/2, sz, 1, pitDepth, shaftW+2, shaftMat);
+      addBox(sx + shaftW/2 + 0.5, -pitDepth/2, sz, 1, pitDepth, shaftW+2, shaftMat);
+      addBox(sx, -pitDepth - shaftH/2, sz - shaftLen/2 - shaftW/2, shaftW+2, 0.8, shaftLen, shaftMat);
+      addBox(sx, -pitDepth + shaftH/2, sz - shaftLen/2 - shaftW/2, shaftW+2, 0.8, shaftLen, shaftMat);
+      addBox(sx - shaftW/2 - 0.5, -pitDepth, sz - shaftLen/2 - shaftW/2, 1, shaftH, shaftLen, shaftMat);
+      addBox(sx + shaftW/2 + 0.5, -pitDepth, sz - shaftLen/2 - shaftW/2, 1, shaftH, shaftLen, shaftMat);
+      guideLine([[sx,2,sz],[sx,-pitDepth+2,sz],[sx,-pitDepth+2,sz-shaftLen-shaftW]], neonGreen);
+    })(70, 40);
+
+    // inverted overhang: a huge canted slab jutting out ceiling-first,
+    // forcing a low, fast pass beneath its underside.
+    (function buildInvertedOverhang(ox, oz){
+      const slabMat = new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.3 });
+      const slab = addBox(ox, 16, oz, 34, 2.2, 20, slabMat);
+      slab.rotation.z = -0.12;
+      slab.rotation.x = 0.05;
+      addCylinder(ox - 15, 8, oz - 8, 1.4, 16, monoEdgeMat);
+      addCylinder(ox + 15, 8, oz + 8, 1.4, 16, monoEdgeMat);
+      guideLine([[ox-16,7,oz],[ox+16,7,oz]], neonRed);
+    })(-30, 10);
+
+    // razor spire ring: three needle towers ringing a tight vertical
+    // corkscrew line for spiraling climbs/dives.
+    (function buildSpireRing(cx, cz, radius){
+      const spireMat = new THREE.MeshStandardMaterial({ color: 0x21252b, metalness: 0.4, roughness: 0.4 });
+      const pts = [];
+      for (let i = 0; i < 3; i++){
+        const a = (i/3) * Math.PI * 2;
+        const x = cx + Math.cos(a)*radius, z = cz + Math.sin(a)*radius;
+        const h = 40 + i*6;
+        addCylinder(x, h/2, z, 0.9, h, spireMat);
+        pts.push([x, h*0.6, z]);
+      }
+      pts.push(pts[0]);
+      guideLine(pts, neonCyan);
+    })(100, -110, 14);
+
+    // hollow ring bridge: a wide flattened ring to fly through dead
+    // center or skim just inside its rim at speed.
+    (function buildRingBridge(cx, cy, cz, R, tube){
+      const ringMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.5, roughness: 0.35 });
+      const segs = 20;
+      for (let i = 0; i < segs; i++){
+        const a = (i/segs) * Math.PI * 2;
+        const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R * 0.55;
+        const seg = addBox(x, y, cz, tube, tube, tube, ringMat);
+        seg.rotation.z = a;
+      }
+      guideLine([[cx,cy,cz-20],[cx,cy,cz+20]], neonAmber);
+    })(-60, 25, -15, 12, 1.6);
+
     buildDrone();
   }
 
@@ -884,24 +1008,40 @@
   window.addEventListener('resize', () => { if (flying) resizeRenderer(); });
 
   function collide(nextPos){
+    // returns null if clear, or { normal: THREE.Vector3 } describing the
+    // push-out direction of the surface that was hit, so the caller can do a
+    // soft "bump" (cancel only the into-surface velocity component) instead
+    // of a hard bounce-back.
     const r = 0.35; // drone collision radius
     for (const o of obstacles){
       if (o.type === 'box'){
         const dx = nextPos.x - o.mesh.position.x;
         const dz = nextPos.z - o.mesh.position.z;
         const dy = nextPos.y - o.mesh.position.y;
-        if (Math.abs(dx) < o.w/2 + r && Math.abs(dz) < o.d/2 + r && Math.abs(dy) < o.h/2 + r){
-          return true;
+        const hw = o.w/2 + r, hh = o.h/2 + r, hd = o.d/2 + r;
+        if (Math.abs(dx) < hw && Math.abs(dz) < hd && Math.abs(dy) < hh){
+          const px = hw - Math.abs(dx);
+          const py = hh - Math.abs(dy);
+          const pz = hd - Math.abs(dz);
+          let normal;
+          if (px <= py && px <= pz) normal = new THREE.Vector3(Math.sign(dx) || 1, 0, 0);
+          else if (py <= px && py <= pz) normal = new THREE.Vector3(0, Math.sign(dy) || 1, 0);
+          else normal = new THREE.Vector3(0, 0, Math.sign(dz) || 1);
+          return { normal };
         }
       } else if (o.type === 'cylinder'){
         const dx = nextPos.x - o.mesh.position.x;
         const dz = nextPos.z - o.mesh.position.z;
         const dy = nextPos.y - o.mesh.position.y;
         const dist = Math.sqrt(dx*dx + dz*dz);
-        if (dist < o.r + r && Math.abs(dy) < o.h/2 + r) return true;
+        if (dist < o.r + r && Math.abs(dy) < o.h/2 + r){
+          const n = dist > 1e-5 ? new THREE.Vector3(dx/dist, 0, dz/dist) : new THREE.Vector3(1,0,0);
+          return { normal: n };
+        }
       }
     }
-    return nextPos.y < 0.15; // ground collision
+    if (nextPos.y < 0.15) return { normal: new THREE.Vector3(0,1,0) };
+    return null;
   }
 
   const flyIgnitionLabel = document.getElementById('flyIgnitionLabel');
@@ -1019,16 +1159,34 @@
     vel.z += bodyUp.z * thrust * dt;
     vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
 
-    // drag
-    vel.multiplyScalar(1 - Math.min(1, 0.7*dt)); // lower drag — high-KV top speed
+    // drag — separate, stronger drag on downward (falling) speed so descents
+    // feel weighty and controlled rather than floaty; horizontal/climb drag
+    // stays low for that high-KV top-speed feel.
+    const horizDrag = 1 - Math.min(1, 0.7*dt);
+    vel.x *= horizDrag;
+    vel.z *= horizDrag;
+    if (vel.y < 0){
+      vel.y *= (1 - Math.min(1, 0.15*dt)); // falling: much less air resistance, drops faster
+    } else {
+      vel.y *= horizDrag;
+    }
 
     const nextPos = pos.clone().addScaledVector(vel, dt);
-    if (!collide(nextPos)){
+    const hit = collide(nextPos);
+    if (!hit){
       pos.copy(nextPos);
     } else {
-      vel.multiplyScalar(-0.15); // bounce/kill velocity on hit
-      flyMsg.textContent = 'COLLISION';
-      setTimeout(() => { flyMsg.textContent=''; }, 500);
+      // soft bump: only cancel the velocity component driving INTO the
+      // surface (along its normal), keep the rest of the motion — a casual
+      // thud rather than a launch backwards, and no sticking to the wall.
+      const n = hit.normal;
+      const vDotN = vel.dot(n);
+      if (vDotN < 0){
+        vel.addScaledVector(n, -vDotN * 1.15);
+      }
+      pos.copy(nextPos).addScaledVector(n, 0.05); // tiny push-out to avoid sticking
+      flyMsg.textContent = 'BUMP';
+      setTimeout(() => { flyMsg.textContent=''; }, 300);
     }
     if (pos.y < 0.15){ pos.y = 0.15; vel.y = Math.max(0, vel.y); }
 
