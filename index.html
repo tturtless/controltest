@@ -910,12 +910,12 @@
     // reuse the page's gamepad config (cfg) + active gamepad if present
     let r = 0, p = 0, y = 0, t = 0;
 
-    // --- check button 7 for ignition (value goes 0→1 when toggled on) ---
+    // --- check AXIS 7 for ignition (switch goes -1 → +1 when toggled on) ---
     try {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       for (const pd of pads) {
-        if (pd && pd.buttons && pd.buttons.length > 7) {
-          ignitionOn = pd.buttons[7].value > 0.5 || pd.buttons[7].pressed;
+        if (pd && pd.axes && pd.axes.length > 7) {
+          ignitionOn = pd.axes[7] > 0.5;
           break;
         }
       }
