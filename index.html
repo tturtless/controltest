@@ -237,7 +237,10 @@
 
 <header>
   <h1>FPV STICK BENCH <span>// gamepad axis tester</span></h1>
-  <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <button class="cal-btn mono" id="flyBtn">▶ Fly Air65 (3D)</button>
+    <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
+  </div>
 </header>
 
 <main>
@@ -276,6 +279,32 @@
   Works with any HID gamepad/joystick your browser recognizes — including most FPV sim transmitters
   plugged in via USB.
 </footer>
+
+<div id="flyOverlay" style="position:fixed; inset:0; background:#000; display:none; z-index:20;">
+  <canvas id="flyCanvas" style="display:block; width:100%; height:100%;"></canvas>
+
+  <!-- OSD -->
+  <div style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
+    BETAFPV AIR65 // SIM
+  </div>
+  <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
+    THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
+  </div>
+  <div id="flyMsg" style="position:absolute; bottom:60px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#ffb020; font-size:14px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;"></div>
+  <div style="position:absolute; bottom:16px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#6f8f88; font-size:11.5px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;">
+    Gamepad: Roll/Pitch/Yaw/Throttle from your calibration &nbsp;|&nbsp; Keyboard fallback: W/S pitch, A/D roll, Q/E yaw, R/F throttle, SPACE reset &nbsp;|&nbsp; ESC to exit
+  </div>
+
+  <!-- crosshair -->
+  <svg width="26" height="26" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none;">
+    <line x1="13" y1="2" x2="13" y2="10" stroke="#39ff9d" stroke-width="1.5"/>
+    <line x1="13" y1="16" x2="13" y2="24" stroke="#39ff9d" stroke-width="1.5"/>
+    <line x1="2" y1="13" x2="10" y2="13" stroke="#39ff9d" stroke-width="1.5"/>
+    <line x1="16" y1="13" x2="24" y2="13" stroke="#39ff9d" stroke-width="1.5"/>
+  </svg>
+
+  <button class="cal-btn secondary mono" id="flyExitBtn" style="position:absolute; top:14px; left:50%; transform:translateX(-50%);">Exit (ESC)</button>
+</div>
 
 <div id="calOverlay">
   <div class="cal-card">
@@ -329,6 +358,10 @@
     let n = (raw - ch.center) / ch.delta;
     return Math.max(0, Math.min(1, n));
   }
+  // expose for the 3D flight sim
+  window.__fpvComputeSigned = computeSigned;
+  window.__fpvComputeThrottle = computeThrottle;
+  window.__fpvCfg = cfg;
 
   // ---------- HUD (SVG) ----------
   const NS = "http://www.w3.org/2000/svg";
@@ -421,6 +454,7 @@
       });
       if (use === 'throttle') cfg[use] = { axis: i, center: -1, delta: 2 };
       else if (use) cfg[use] = { axis: i, center: 0, delta: 1 };
+      window.__fpvCfg = cfg;
     });
   }
 
@@ -528,6 +562,7 @@
     calStep++;
     if (calStep >= calSteps.length) {
       cfg = calResult;
+      window.__fpvCfg = cfg;
       calibrated = true;
       calStatusHint.textContent = 'Calibrated. Roll, pitch, yaw and throttle now match your controller\u2019s actual axes and directions.';
       // reflect assignment in the manual override table dropdowns
@@ -594,6 +629,272 @@
     requestAnimationFrame(poll);
   }
   requestAnimationFrame(poll);
+})();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const flyBtn = document.getElementById('flyBtn');
+  const flyExitBtn = document.getElementById('flyExitBtn');
+  const flyOverlay = document.getElementById('flyOverlay');
+  const flyCanvas = document.getElementById('flyCanvas');
+  const flyOsd = document.getElementById('flyOsd');
+  const flyMsg = document.getElementById('flyMsg');
+
+  let renderer, scene, camera, drone, propellers = [];
+  let obstacles = [];
+  let flying = false;
+  let animId = null;
+
+  // physics state
+  let pos = new THREE.Vector3(0, 3, 20);
+  let vel = new THREE.Vector3(0, 0, 0);
+  let yaw = 0, pitch = 0, roll = 0; // radians, current attitude
+  const GRAVITY = -9.8;
+
+  const keys = {};
+  window.addEventListener('keydown', (e) => { keys[e.code] = true; if (flying && e.code === 'Escape') exitFly(); });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  function initScene(){
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x8fd0ff);
+    scene.fog = new THREE.Fog(0x8fd0ff, 40, 260);
+
+    camera = new THREE.PerspectiveCamera(95, flyCanvas.clientWidth / flyCanvas.clientHeight, 0.05, 500);
+
+    renderer = new THREE.WebGLRenderer({ canvas: flyCanvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    resizeRenderer();
+
+    // lights
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x445533, 0.9);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    sun.position.set(60, 100, 40);
+    scene.add(sun);
+
+    // ground
+    const groundGeo = new THREE.PlaneGeometry(600, 600, 1, 1);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d7a3d });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    // grid helper for spatial reference
+    const grid = new THREE.GridHelper(600, 60, 0x225522, 0x2a662a);
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    // obstacles: solid boxes, cylinders (gates/pillars), scattered around
+    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xcc4444 });
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xd8d8d8 });
+    const gateMat = new THREE.MeshStandardMaterial({ color: 0xffb020 });
+
+    function addBox(x, y, z, w, h, d, mat){
+      const geo = new THREE.BoxGeometry(w, h, d);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      obstacles.push({ mesh, type: 'box', w, h, d });
+      return mesh;
+    }
+    function addCylinder(x, y, z, r, h, mat){
+      const geo = new THREE.CylinderGeometry(r, r, h, 16);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      obstacles.push({ mesh, type: 'cylinder', r, h });
+      return mesh;
+    }
+
+    // scattered crates
+    for (let i = 0; i < 14; i++){
+      const x = (Math.random()-0.5) * 160;
+      const z = (Math.random()-0.5) * 160 - 20;
+      if (Math.abs(x) < 6 && Math.abs(z - 20) < 10) continue; // keep spawn clear
+      const s = 1.5 + Math.random()*2.5;
+      addBox(x, s/2, z, s, s, s, obstacleMat);
+    }
+    // pillars
+    for (let i = 0; i < 8; i++){
+      const x = (Math.random()-0.5) * 180;
+      const z = (Math.random()-0.5) * 180 - 20;
+      const h = 8 + Math.random()*14;
+      addCylinder(x, h/2, z, 1.2, h, pillarMat);
+    }
+    // a gate to fly through
+    addBox(0, 6, -30, 0.6, 12, 0.6, gateMat);
+    addBox(-6, 6, -30, 0.6, 12, 0.6, gateMat);
+    addBox(-3, 12, -30, 6.6, 0.6, 0.6, gateMat);
+
+    buildDrone();
+  }
+
+  function buildDrone(){
+    drone = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const propMat = new THREE.MeshStandardMaterial({ color: 0x111111, transparent: true, opacity: 0.6 });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.08), bodyMat);
+    drone.add(body);
+
+    const armPositions = [[0.045,0,0.045],[-0.045,0,0.045],[0.045,0,-0.045],[-0.045,0,-0.045]];
+    armPositions.forEach(([x,,z]) => {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.01,0.006,0.01), armMat);
+      arm.position.set(x, 0, z);
+      drone.add(arm);
+      const prop = new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.025,0.002,10), propMat);
+      prop.position.set(x, 0.008, z);
+      drone.add(prop);
+      propellers.push(prop);
+    });
+
+    // this is a tiny cosmetic model; camera sits at drone position for FPV
+    drone.visible = false; // FPV view: we don't render our own body in first person
+    scene.add(drone);
+  }
+
+  function resizeRenderer(){
+    const w = flyOverlay.clientWidth, h = flyOverlay.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', () => { if (flying) resizeRenderer(); });
+
+  function collide(nextPos){
+    const r = 0.35; // drone collision radius
+    for (const o of obstacles){
+      if (o.type === 'box'){
+        const dx = nextPos.x - o.mesh.position.x;
+        const dz = nextPos.z - o.mesh.position.z;
+        const dy = nextPos.y - o.mesh.position.y;
+        if (Math.abs(dx) < o.w/2 + r && Math.abs(dz) < o.d/2 + r && Math.abs(dy) < o.h/2 + r){
+          return true;
+        }
+      } else if (o.type === 'cylinder'){
+        const dx = nextPos.x - o.mesh.position.x;
+        const dz = nextPos.z - o.mesh.position.z;
+        const dy = nextPos.y - o.mesh.position.y;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+        if (dist < o.r + r && Math.abs(dy) < o.h/2 + r) return true;
+      }
+    }
+    return nextPos.y < 0.15; // ground collision
+  }
+
+  function getInputs(){
+    // reuse the page's gamepad config (cfg) + active gamepad if present
+    let r = 0, p = 0, y = 0, t = 0;
+    let usingPad = false;
+    try {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      let gp = null;
+      for (const pd of pads) if (pd) { gp = pd; break; }
+      if (gp && window.__fpvCfg){
+        const c = window.__fpvCfg;
+        r = window.__fpvComputeSigned(gp, c.roll);
+        p = window.__fpvComputeSigned(gp, c.pitch);
+        y = window.__fpvComputeSigned(gp, c.yaw);
+        t = window.__fpvComputeThrottle(gp, c.throttle);
+        usingPad = true;
+      }
+    } catch(e){}
+
+    if (!usingPad){
+      // keyboard fallback
+      r = (keys['KeyD']?1:0) - (keys['KeyA']?1:0);
+      p = (keys['KeyW']?1:0) - (keys['KeyS']?1:0);
+      y = (keys['KeyE']?1:0) - (keys['KeyQ']?1:0);
+      if (keys['KeyR']) kbThrottle = Math.min(1, kbThrottle + 0.02);
+      if (keys['KeyF']) kbThrottle = Math.max(0, kbThrottle - 0.02);
+      t = kbThrottle;
+    }
+    return { r, p, y, t };
+  }
+  let kbThrottle = 0;
+
+  let lastTime = null;
+  function animate(time){
+    if (!flying) return;
+    if (lastTime === null) lastTime = time;
+    let dt = (time - lastTime) / 1000;
+    dt = Math.min(dt, 0.05);
+    lastTime = time;
+
+    const { r, p, y, t } = getInputs();
+
+    // yaw rate control
+    yaw -= y * 2.2 * dt;
+    // desired attitude (acro-ish self-leveling-lite feel)
+    const targetPitch = -p * 0.9;
+    const targetRoll = -r * 0.9;
+    pitch += (targetPitch - pitch) * Math.min(1, 8*dt);
+    roll += (targetRoll - roll) * Math.min(1, 8*dt);
+
+    // thrust direction from attitude
+    const thrust = t * 26; // max accel from motors
+    const forwardX = Math.sin(yaw) * Math.cos(pitch);
+    const forwardZ = Math.cos(yaw) * Math.cos(pitch);
+    const forwardY = Math.sin(pitch);
+
+    const rightX = Math.cos(yaw);
+    const rightZ = -Math.sin(yaw);
+
+    vel.x += (forwardX * thrust + rightX * roll * 8) * dt;
+    vel.z += (forwardZ * thrust + rightZ * roll * 8) * dt;
+    vel.y += (forwardY * thrust + GRAVITY + t*2) * dt;
+
+    // drag
+    vel.multiplyScalar(1 - Math.min(1, 1.1*dt));
+
+    const nextPos = pos.clone().addScaledVector(vel, dt);
+    if (!collide(nextPos)){
+      pos.copy(nextPos);
+    } else {
+      vel.multiplyScalar(-0.15); // bounce/kill velocity on hit
+      flyMsg.textContent = 'COLLISION';
+      setTimeout(() => { flyMsg.textContent=''; }, 500);
+    }
+    if (pos.y < 0.15){ pos.y = 0.15; vel.y = Math.max(0, vel.y); }
+
+    camera.position.copy(pos);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+    camera.rotation.z = roll * 0.9;
+
+    propellers.forEach(pr => pr.rotation.y += 40 * dt * (0.3 + t));
+
+    flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD ${vel.length().toFixed(1)}m/s`;
+
+    renderer.render(scene, camera);
+    animId = requestAnimationFrame(animate);
+  }
+
+  function enterFly(){
+    if (!scene) initScene();
+    flyOverlay.style.display = 'block';
+    resizeRenderer();
+    pos.set(0, 3, 20);
+    vel.set(0,0,0);
+    yaw = Math.PI; pitch = 0; roll = 0;
+    kbThrottle = 0;
+    flying = true;
+    lastTime = null;
+    animId = requestAnimationFrame(animate);
+  }
+  function exitFly(){
+    flying = false;
+    if (animId) cancelAnimationFrame(animId);
+    flyOverlay.style.display = 'none';
+  }
+
+  flyBtn.addEventListener('click', enterFly);
+  flyExitBtn.addEventListener('click', exitFly);
 })();
 </script>
 
