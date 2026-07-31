@@ -881,30 +881,37 @@
     function buildGiantSpiralTower(cx, cz, radius, totalHeight, turns, segsPerTurn){
       // straight center pole, the "spine" of the structure, climbing the
       // full height — you can shoot straight up the middle of the coil
-      addCylinder(cx, totalHeight/2, cz, 0.55, totalHeight, spiralCenterMat);
-      // helical tube made of many short tilted box segments tracing a
-      // circle around the spine while climbing
+      addCylinder(cx, totalHeight/2, cz, 0.9, totalHeight, spiralCenterMat);
+      // helical "air stair": wide, flat tread-like segments (like the
+      // spiral staircase reference) instead of a thin rail, so the coil
+      // reads as a chunky ribbon of steps corkscrewing up the spine
       const segs = turns * segsPerTurn;
       const rise = totalHeight / segs;
+      const treadWidth = radius * 0.9; // how far the tread extends from the spine
+      const treadThickness = 0.7;
       for (let i = 0; i < segs; i++){
         const a0 = (i / segsPerTurn) * Math.PI * 2;
         const a1 = ((i+1) / segsPerTurn) * Math.PI * 2;
+        const rMid = radius - treadWidth/2 + treadWidth/2; // outer edge follows radius
         const x0 = cx + Math.cos(a0) * radius, z0 = cz + Math.sin(a0) * radius, y0 = i * rise + 1;
         const x1 = cx + Math.cos(a1) * radius, z1 = cz + Math.sin(a1) * radius, y1 = (i+1) * rise + 1;
         const mx = (x0+x1)/2, my = (y0+y1)/2, mz = (z0+z1)/2;
         const dx = x1-x0, dy = y1-y0, dz = z1-z0;
         const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
-        const seg = addBox(mx, my, mz, 0.4, 0.4, len, spiralPoleMat);
+        // orient a wide flat slab (like a stair tread) along the helix
+        // direction, with its wide axis pointing radially outward from
+        // the spine — visually a thick "air stair", not a thin rail
+        const seg = addBox(mx, my, mz, treadWidth, treadThickness, Math.max(len, 1.4), spiralPoleMat);
         seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), new THREE.Vector3(dx,dy,dz).normalize());
-        // keep an accurate collision box for the rotated segment: swap to a
-        // roughly-cubic collider sized to the segment length so tilted
-        // orientation doesn't create phantom gaps or over-wide hits
-        obstacles[obstacles.length-1].w = 0.6; obstacles[obstacles.length-1].h = 0.6; obstacles[obstacles.length-1].d = len;
+        // give the collider generous, roughly-true dimensions for the
+        // rotated wide tread so hits feel right from any approach angle
+        const ob = obstacles[obstacles.length-1];
+        ob.w = treadWidth; ob.h = treadThickness + 0.3; ob.d = Math.max(len, 1.4) + treadWidth*0.5;
       }
       // small landing platform at the very top, like the play structure deck
       addBox(cx, totalHeight + 0.3, cz, 6, 0.6, 6, spiralCenterMat);
     }
-    buildGiantSpiralTower(-15, -195, 7, 55, 4, 10);
+    buildGiantSpiralTower(-15, -195, 8, 55, 4, 10);
 
     // ---- twin spiral towers linked by a sky-bridge: two more giant spiral
     // climbs (smaller than the main one) connected by a high crossing beam,
@@ -965,6 +972,98 @@
       }
     }
     buildCatwalkLattice(-120, -50, 22, 18, 3);
+
+    // ---- stacked box tower with punch-through floors: a tall tower made
+    // of multiple floor frames, each with an offset square gap that rotates
+    // which quadrant is open per level, so flying up means threading a
+    // different gap on every floor ----
+    const stackMat = new THREE.MeshStandardMaterial({ color: 0x9a6b4a });
+    function buildPunchThroughTower(cx, cz, floors, floorGap, outer, hole){
+      for (let f = 0; f < floors; f++){
+        const y = 5 + f * floorGap;
+        const ang = (f % 4) * (Math.PI/2); // rotate which quadrant is "open" each floor
+        const offset = (outer - hole)/4;
+        const ox = Math.cos(ang) * offset, oz = Math.sin(ang) * offset;
+        const sideW = (outer - hole)/2;
+        addBox(cx + ox - hole/2 - sideW/2, y, cz + oz, sideW, 0.6, outer, stackMat);
+        addBox(cx + ox + hole/2 + sideW/2, y, cz + oz, sideW, 0.6, outer, stackMat);
+        // corner posts connecting this floor to the next
+        [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx_,sz_]) => {
+          addBox(cx + sx_*outer/2, y + floorGap/2, cz + sz_*outer/2, 0.4, floorGap, 0.4, stackMat);
+        });
+      }
+    }
+    buildPunchThroughTower(150, 20, 4, 8, 16, 7);
+
+    // ---- figure-eight hoop weave: two overlapping horizontal loops of
+    // hoops crossing in the middle, so the flight line has to bank hard
+    // left then right in a continuous figure-8 ----
+    const fig8MatA = new THREE.MeshStandardMaterial({ color: 0xffb020 });
+    const fig8MatB = new THREE.MeshStandardMaterial({ color: 0x39ff9d });
+    function buildFigureEightWeave(cx, cy, cz, loopR, count){
+      for (let i = 0; i < count; i++){
+        const t = (i/count) * Math.PI * 2;
+        const x1 = cx - loopR + Math.cos(t)*loopR;
+        const z1 = cz + Math.sin(t)*loopR;
+        addRingGate(x1, cy, z1, 2.6, fig8MatA, 10);
+        const x2 = cx + loopR - Math.cos(t)*loopR;
+        const z2 = cz - Math.sin(t)*loopR;
+        addRingGate(x2, cy, z2, 2.6, fig8MatB, 10);
+      }
+    }
+    buildFigureEightWeave(-10, 6, 55, 9, 8);
+
+    // ---- gauntlet corridor: a long narrow passage lined with alternating
+    // wall-mounted obstacles jutting in from both sides, forcing constant
+    // side-to-side dodging while flying straight down it ----
+    const gauntletMat = new THREE.MeshStandardMaterial({ color: 0xb84a3d });
+    function buildGauntlet(sx, sz, length, count){
+      const gap = length / count;
+      for (let i = 0; i < count; i++){
+        const z = sz - i * gap;
+        const fromLeft = i % 2 === 0;
+        const x = sx + (fromLeft ? -4 : 4);
+        addBox(x, 4 + Math.sin(i*0.8)*1.5, z, 4.5, 3, 1.2, gauntletMat);
+      }
+      // side walls to keep the corridor readable
+      addBox(sx - 7, 5, sz - length/2, 0.4, 10, length, gauntletMat);
+      addBox(sx + 7, 5, sz - length/2, 0.4, 10, length, gauntletMat);
+    }
+    buildGauntlet(40, -170, 50, 8);
+
+    // ---- floating platform cluster: a scatter of small floating slabs at
+    // varied heights close together, for tight over/under/around threading
+    // in a compact area rather than a long corridor ----
+    const floatMat = new THREE.MeshStandardMaterial({ color: 0x4a5a4a });
+    function buildFloatingCluster(cx, cz, count, spread){
+      for (let i = 0; i < count; i++){
+        const x = cx + (Math.random()-0.5) * spread;
+        const z = cz + (Math.random()-0.5) * spread;
+        const y = 5 + Math.random() * 20;
+        const w = 3 + Math.random()*3;
+        addBox(x, y, z, w, 0.6, w, floatMat);
+      }
+    }
+    buildFloatingCluster(130, -140, 16, 40);
+
+    // ---- arch gauntlet: a row of full stone-style arches (walls + open
+    // archway) close together, each rotated slightly, so you fly through a
+    // tight chicane of doorways rather than open hoops ----
+    const archWallMat = new THREE.MeshStandardMaterial({ color: 0x7d7568 });
+    function buildArchGauntlet(sx, sz, count, gap){
+      for (let i = 0; i < count; i++){
+        const z = sz - i * gap;
+        const yaw = (i % 2 === 0 ? 1 : -1) * 0.3;
+        const cx = sx + Math.sin(i*0.9) * 4;
+        const wallW = 9, wallH = 8, doorW = 3.6, doorH = 5.5;
+        const dSeg = (wallW - doorW)/2;
+        const l = addBox(cx - (wallW+doorW)/4, wallH/2, z, dSeg, wallH, 0.6, archWallMat);
+        const r = addBox(cx + (wallW+doorW)/4, wallH/2, z, dSeg, wallH, 0.6, archWallMat);
+        const top = addBox(cx, doorH + (wallH-doorH)/2, z, doorW, wallH-doorH, 0.6, archWallMat);
+        [l,r,top].forEach(m => { m.rotation.y = yaw; });
+      }
+    }
+    buildArchGauntlet(-100, 100, 5, 11);
 
     // ---- ring gate hoops: original schematic, kept exactly as-is ----
     const ringMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
