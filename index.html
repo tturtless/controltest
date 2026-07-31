@@ -843,17 +843,25 @@
 
     // thrust acts along the drone's body "up" axis (like a real multirotor),
     // which tilts forward/sideways as pitch/roll change, and points straight
-    // up when level — NOT along the camera look direction.
+    // up when level. Derived to be consistent with the camera's own
+    // rotation.order = 'YXZ' convention so "pitch forward" moves you the
+    // same direction the camera is looking.
     const thrust = t * 26; // max accel from motors
 
-    // body-up vector after applying pitch (tilt forward) and roll (tilt sideways), then yaw
-    let upX = Math.sin(roll);
-    let upY = Math.cos(pitch) * Math.cos(roll);
-    let upZ = -Math.sin(pitch) * Math.cos(roll);
-    // rotate by yaw around world Y
-    const thrustX = upX * Math.cos(yaw) + upZ * Math.sin(yaw);
-    const thrustZ = -upX * Math.sin(yaw) + upZ * Math.cos(yaw);
-    const thrustY = upY;
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+    const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
+    const cosR = Math.cos(roll), sinR = Math.sin(roll);
+
+    // body "up" vector (0,1,0) rotated by roll (about local Z), then pitch (about local X), then yaw (about world Y)
+    // roll tilts up vector sideways, pitch tilts it forward/back
+    let ux = sinR * cosP;
+    let uy = cosR * cosP;
+    let uz = sinP;
+
+    // apply yaw (matching camera's YXZ order & THREE's convention where yaw=0 looks toward -Z)
+    const thrustX = ux * cosY + uz * sinY;
+    const thrustY = uy;
+    const thrustZ = -ux * sinY + uz * cosY;
 
     vel.x += thrustX * thrust * dt;
     vel.z += thrustZ * thrust * dt;
