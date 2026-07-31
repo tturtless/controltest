@@ -237,8 +237,13 @@
 
 <header>
   <h1>FPV STICK BENCH <span>// gamepad axis tester</span></h1>
-  <div style="display:flex; align-items:center; gap:10px;">
-    <button class="cal-btn mono" id="flyBtn">▶ Fly Air65 (3D)</button>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+      <span class="mono" style="font-size:10.5px; color:var(--text-dim); letter-spacing:1px;">FLY:</span>
+      <button class="cal-btn mono" id="flyBtnAir65" data-drone="air65">▶ BetaFPV Air65 <span style="opacity:.55">7000KV</span></button>
+      <button class="cal-btn mono" id="flyBtnViper" data-drone="viper">▶ Viper Racer5 <span style="opacity:.55">5000KV</span></button>
+      <button class="cal-btn mono" id="flyBtnTitan" data-drone="titan">▶ Titan Cinewhoop <span style="opacity:.55">3000KV</span></button>
+    </div>
     <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
   </div>
 </header>
@@ -284,8 +289,8 @@
   <canvas id="flyCanvas" style="display:block; width:100%; height:100%;"></canvas>
 
   <!-- OSD -->
-  <div style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
-    BETAFPV AIR65 // 9300KV SIM
+  <div id="flyDroneLabel" style="position:absolute; top:14px; left:16px; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
+    BETAFPV AIR65 // 7000KV SIM
   </div>
   <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
     THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
@@ -641,14 +646,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
-  const flyBtn = document.getElementById('flyBtn');
   const flyExitBtn = document.getElementById('flyExitBtn');
   const flyOverlay = document.getElementById('flyOverlay');
   const flyCanvas = document.getElementById('flyCanvas');
   const flyOsd = document.getElementById('flyOsd');
   const flyMsg = document.getElementById('flyMsg');
+  const flyDroneLabel = document.getElementById('flyDroneLabel');
   const camAngleSlider = document.getElementById('camAngleSlider');
   const camAngleVal = document.getElementById('camAngleVal');
+
+  // ---- craft roster: pick a KV, pick a fight ----
+  const DRONES = {
+    air65: { name: 'BETAFPV AIR65',     kv: 7000 },
+    viper: { name: 'VIPER RACER 5',     kv: 5000 },
+    titan: { name: 'TITAN CINEWHOOP',   kv: 3000 }
+  };
+  let selectedDrone = DRONES.air65;
 
   let renderer, scene, camera, drone, propellers = [];
   let obstacles = [];
@@ -730,6 +743,18 @@
       obstacles.push({ mesh, type: 'cylinder', r, h });
       return mesh;
     }
+    // a ring of small cube "beads" you fly through the middle of — like a
+    // circular drone-racing gate. Ring stands vertically, hole facing +Z/-Z.
+    function addRingGate(cx, cy, cz, radius, mat, segments){
+      segments = segments || 16;
+      const bead = Math.max(0.9, radius * 0.16);
+      for (let i = 0; i < segments; i++){
+        const a = (i / segments) * Math.PI * 2;
+        const x = cx + Math.cos(a) * radius;
+        const y = cy + Math.sin(a) * radius;
+        addBox(x, y, cz, bead, bead, bead, mat);
+      }
+    }
 
     // scattered crates
     for (let i = 0; i < 14; i++){
@@ -750,6 +775,74 @@
     addBox(0, 6, -30, 0.6, 12, 0.6, gateMat);
     addBox(-6, 6, -30, 0.6, 12, 0.6, gateMat);
     addBox(-3, 12, -30, 6.6, 0.6, 0.6, gateMat);
+
+    // ---- house: fly in through the front door, out a side window ----
+    const houseMat = new THREE.MeshStandardMaterial({ color: 0xd9c9a3 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x7a3b2e });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x5a4632 });
+    (function buildHouse(hx, hz){
+      const W = 14, D = 12, WALL_H = 7;
+      // front wall (facing spawn, +Z side) with a door gap in the middle
+      const doorW = 3.4, doorH = 5;
+      const dSeg = (W - doorW) / 2;
+      addBox(hx - (W + doorW)/4, WALL_H/2, hz + D/2, dSeg, WALL_H, 0.5, houseMat);
+      addBox(hx + (W + doorW)/4, WALL_H/2, hz + D/2, dSeg, WALL_H, 0.5, houseMat);
+      addBox(hx, doorH + (WALL_H-doorH)/2, hz + D/2, doorW, WALL_H - doorH, 0.5, trimMat); // lintel above door
+      // back wall, solid
+      addBox(hx, WALL_H/2, hz - D/2, W, WALL_H, 0.5, houseMat);
+      // left wall, solid
+      addBox(hx - W/2, WALL_H/2, hz, 0.5, WALL_H, D, houseMat);
+      // right wall with a window gap to fly out through
+      const winW = 3, winH = 3, winBottom = 2.2;
+      const wSeg = (D - winW) / 2;
+      addBox(hx + W/2, WALL_H/2, hz - (D + winW)/4, 0.5, WALL_H, wSeg, houseMat);
+      addBox(hx + W/2, WALL_H/2, hz + (D + winW)/4, 0.5, WALL_H, wSeg, houseMat);
+      addBox(hx + W/2, winBottom/2, hz, 0.5, winBottom, winW, houseMat); // sill, below window
+      addBox(hx + W/2, winBottom + winH + (WALL_H-winBottom-winH)/2, hz, 0.5, WALL_H-winBottom-winH, winW, houseMat); // lintel, above window
+      // peaked roof (two angled slabs)
+      const roofL = addBox(hx, WALL_H + 1.6, hz - D*0.27, W*0.62, 0.5, D*0.62, roofMat);
+      roofL.rotation.x = -0.5; roofL.geometry.computeBoundingBox();
+      const roofR = addBox(hx, WALL_H + 1.6, hz + D*0.27, W*0.62, 0.5, D*0.62, roofMat);
+      roofR.rotation.x = 0.5;
+      // chimney
+      addBox(hx + W*0.28, WALL_H + 3.2, hz - D*0.18, 1.1, 3, 1.1, trimMat);
+    })(45, -55);
+
+    // ---- tunnel corridor: long roofed passage to fly straight through ----
+    const tunnelMat = new THREE.MeshStandardMaterial({ color: 0x555f66 });
+    (function buildTunnel(tx, tz, len){
+      const wallGap = 5, wallH = 6;
+      addBox(tx - wallGap/2, wallH/2, tz, 0.6, wallH, len, tunnelMat);
+      addBox(tx + wallGap/2, wallH/2, tz, 0.6, wallH, len, tunnelMat);
+      addBox(tx, wallH + 0.3, tz, wallGap + 1.2, 0.6, len, tunnelMat);
+    })(-45, -40, 26);
+
+    // ---- ring gates: fly the hoop, three of them staggered ----
+    const ringMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
+    const ringMat2 = new THREE.MeshStandardMaterial({ color: 0x4dd8ff });
+    const ringMat3 = new THREE.MeshStandardMaterial({ color: 0x39ff9d });
+    addRingGate(20, 5, -10, 4, ringMat1);
+    addRingGate(30, 7, -60, 4.5, ringMat2);
+    addRingGate(-25, 6, -85, 4, ringMat3);
+
+    // ---- windmill: cosmetic landmark to fly around ----
+    const millMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee });
+    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+    (function buildWindmill(mx, mz){
+      addCylinder(mx, 5, mz, 1, 10, millMat);
+      const hub = new THREE.Group();
+      hub.position.set(mx, 9.5, mz);
+      for (let i = 0; i < 4; i++){
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5, 1.1), bladeMat);
+        blade.position.y = 2.6;
+        const holder = new THREE.Group();
+        holder.rotation.z = (Math.PI/2) * i;
+        holder.add(blade);
+        hub.add(holder);
+      }
+      hub.rotation.x = 0.2;
+      scene.add(hub);
+    })(60, -20);
 
     buildDrone();
   }
@@ -862,9 +955,10 @@
     const PITCH_RATE = 5.8; // rad/s at full deflection
     const ROLL_RATE = 6.2;  // rad/s at full deflection
 
-    // Motor KV — raised to a 30000KV setup. KV chiefly drives motor RPM/thrust
-    // headroom, so it scales max acceleration (top end speed & punch) below.
-    const MOTOR_KV = 9300;
+    // Motor KV comes from whichever craft was selected at launch. KV chiefly
+    // drives motor RPM/thrust headroom, so it scales max acceleration
+    // (top end speed & punch) below.
+    const MOTOR_KV = selectedDrone.kv;
     const KV_REF = 2700; // reference KV the base 52 m/s^2 figure was tuned at
     const KV_SCALE = MOTOR_KV / KV_REF;
 
@@ -931,7 +1025,9 @@
     animId = requestAnimationFrame(animate);
   }
 
-  function enterFly(){
+  function enterFly(droneKey){
+    selectedDrone = DRONES[droneKey] || DRONES.air65;
+    flyDroneLabel.textContent = `${selectedDrone.name} // ${selectedDrone.kv}KV SIM`;
     if (!scene) initScene();
     flyOverlay.style.display = 'block';
     resizeRenderer();
@@ -950,7 +1046,9 @@
     flyOverlay.style.display = 'none';
   }
 
-  flyBtn.addEventListener('click', enterFly);
+  document.querySelectorAll('[data-drone]').forEach(btn => {
+    btn.addEventListener('click', () => enterFly(btn.getAttribute('data-drone')));
+  });
   flyExitBtn.addEventListener('click', exitFly);
 })();
 </script>
