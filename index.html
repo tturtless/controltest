@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FPV Stick Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #06090a;
+    --panel: #0c1315;
+    --line: #17282b;
+    --hud: #39ff9d;
+    --hud-dim: #1f7350;
+    --amber: #ffb020;
+    --cyan: #4dd8ff;
+    --red: #ff4d5e;
+    --text: #d9f5e8;
+    --text-dim: #6f8f88;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Chakra Petch', sans-serif;
+    overflow-x: hidden;
+  }
+  .mono { font-family: 'Share Tech Mono', monospace; }
+
+  /* faint scanline / grid atmosphere */
+  body::before{
+    content: "";
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(57,255,157,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(57,255,157,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header{
+    position: relative; z-index: 1;
+    padding: 22px clamp(16px,4vw,40px) 10px;
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1{
+    margin: 0;
+    font-size: clamp(20px, 3vw, 28px);
+    letter-spacing: 2px;
+    font-weight: 700;
+    color: var(--hud);
+    text-shadow: 0 0 14px rgba(57,255,157,0.35);
+  }
+  header h1 span{ color: var(--text-dim); font-weight: 400; }
+  #status{
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+  #status.ok{ color: var(--hud); border-color: var(--hud-dim); }
+  #status.no{ color: var(--amber); border-color: #4a3a12; }
+
+  main{
+    position: relative; z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px clamp(16px,4vw,40px) 60px;
+    display: grid;
+    grid-template-columns: minmax(0,1.3fr) minmax(260px,1fr);
+    gap: 28px;
+  }
+  @media (max-width: 800px){
+    main{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 18px 18px 22px;
+  }
+  .panel h2{
+    margin: 0 0 14px;
+    font-size: 12px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  /* ---- HUD ---- */
+  #hudWrap{ display:flex; flex-direction: column; align-items: center; gap: 14px; }
+  #hud{
+    width: 100%;
+    max-width: 520px;
+    aspect-ratio: 1;
+    display: block;
+  }
+  .readout-row{
+    display: flex; gap: 22px; flex-wrap: wrap; justify-content: center;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .readout-row b{ color: var(--cyan); font-weight: 400; }
+
+  /* ---- throttle ---- */
+  .throttle-col{ display:flex; flex-direction: column; align-items:center; gap: 6px; }
+  .throttle-track{
+    width: 22px; height: 220px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    position: relative;
+    background: linear-gradient(180deg, rgba(57,255,157,0.04), transparent);
+    margin: 0 auto;
+  }
+  .throttle-fill{
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(180deg, var(--hud), var(--hud-dim));
+    box-shadow: 0 0 10px rgba(57,255,157,0.5);
+    height: 0%;
+    transition: height 40ms linear;
+  }
+
+  /* ---- axis / calibration table ---- */
+  table{ width: 100%; border-collapse: collapse; font-family:'Share Tech Mono',monospace; font-size: 12.5px; }
+  th, td{ padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+  th{ color: var(--text-dim); font-weight: 400; text-transform: uppercase; letter-spacing: 1px; font-size: 11px;}
+  td.val{ color: var(--cyan); }
+  .bar-cell{ width: 90px; }
+  .bar{ height: 6px; background: var(--line); border-radius: 3px; position: relative; overflow: hidden;}
+  .bar i{ position:absolute; top:0; bottom:0; background: var(--hud); width: 0%; }
+
+  select, input[type="checkbox"]{
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    padding: 3px 4px;
+  }
+
+  .buttons-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px,1fr));
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .btn-led{
+    aspect-ratio: 1;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    display: flex; align-items:center; justify-content:center;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .btn-led.on{
+    background: var(--amber);
+    border-color: var(--amber);
+    color: #201400;
+    box-shadow: 0 0 10px rgba(255,176,32,0.6);
+  }
+
+  footer{
+    position: relative; z-index: 1;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 0 20px 40px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+  footer a{ color: var(--cyan); }
+
+  .hint{
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FPV STICK BENCH <span>// gamepad axis tester</span></h1>
+  <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
+</header>
+
+<main>
+  <section class="panel" id="hudWrap">
+    <h2>Attitude / Position</h2>
+    <svg id="hud" viewBox="0 0 300 300"></svg>
+    <div class="readout-row mono">
+      <span>ROLL/YAW: <b id="rX">0.00</b></span>
+      <span>PITCH: <b id="rY">0.00</b></span>
+      <span>THROTTLE: <b id="rT">0.00</b></span>
+    </div>
+    <div class="hint">
+      The craft marker moves with the axes chosen below (defaults to axes 2 &amp; 3, the right stick
+      on most sticks/transmitters). If your beta controller maps differently, use the dropdowns
+      to reassign axes and watch the live values on the right update to find the correct ones.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Axes</h2>
+    <table>
+      <thead><tr><th>#</th><th>Value</th><th class="bar-cell">Level</th><th>Use as</th></tr></thead>
+      <tbody id="axisTable"></tbody>
+    </table>
+
+    <h2 style="margin-top:20px;">Buttons</h2>
+    <div class="buttons-grid" id="buttonGrid"></div>
+  </section>
+</main>
+
+<footer>
+  Move a stick or press a button to wake up the controller if status says no controller detected.
+  Works with any HID gamepad/joystick your browser recognizes — including most FPV sim transmitters
+  plugged in via USB.
+</footer>
+
+<script>
+(function(){
+  const statusEl = document.getElementById('status');
+  const axisTableBody = document.getElementById('axisTable');
+  const buttonGrid = document.getElementById('buttonGrid');
+  const rX = document.getElementById('rX');
+  const rY = document.getElementById('rY');
+  const rT = document.getElementById('rT');
+
+  let gpIndex = null;
+  let axisCount = 0;
+  let buttonCount = 0;
+
+  // which axis index drives which control -- user adjustable
+  let cfg = { x: 2, y: 3, throttle: 1, invertX: false, invertY: true, invertT: false };
+
+  // ---------- HUD (SVG) ----------
+  const NS = "http://www.w3.org/2000/svg";
+  const hud = document.getElementById('hud');
+  function svgEl(tag, attrs){
+    const el = document.createElementNS(NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  // static rings
+  hud.appendChild(svgEl('circle', {cx:150, cy:150, r:140, fill:'none', stroke:'#17282b', 'stroke-width':1}));
+  hud.appendChild(svgEl('circle', {cx:150, cy:150, r:95,  fill:'none', stroke:'#17282b', 'stroke-width':1}));
+  hud.appendChild(svgEl('circle', {cx:150, cy:150, r:50,  fill:'none', stroke:'#17282b', 'stroke-width':1}));
+  hud.appendChild(svgEl('line', {x1:150,y1:10,x2:150,y2:290, stroke:'#12201f', 'stroke-width':1}));
+  hud.appendChild(svgEl('line', {x1:10,y1:150,x2:290,y2:150, stroke:'#12201f', 'stroke-width':1}));
+
+  // throttle ring (arc-ish bar drawn as circle progress) -- represented as vertical bar to the left instead
+  const throttleTrack = svgEl('rect', {x:20, y:40, width:10, height:220, rx:3, fill:'none', stroke:'#17282b'});
+  hud.appendChild(throttleTrack);
+  const throttleFill = svgEl('rect', {x:20, y:260, width:10, height:0, rx:3, fill:'#39ff9d'});
+  hud.appendChild(throttleFill);
+
+  // craft marker group: a small quad/drone glyph
+  const craft = svgEl('g', {});
+  const glow = svgEl('circle', {cx:0, cy:0, r:26, fill:'rgba(57,255,157,0.12)'});
+  craft.appendChild(glow);
+  // body
+  craft.appendChild(svgEl('line', {x1:-16,y1:-16,x2:16,y2:16, stroke:'#39ff9d','stroke-width':2.5}));
+  craft.appendChild(svgEl('line', {x1:-16,y1:16,x2:16,y2:-16, stroke:'#39ff9d','stroke-width':2.5}));
+  craft.appendChild(svgEl('circle', {cx:-16,cy:-16,r:5,fill:'#4dd8ff'}));
+  craft.appendChild(svgEl('circle', {cx:16,cy:-16,r:5,fill:'#4dd8ff'}));
+  craft.appendChild(svgEl('circle', {cx:-16,cy:16,r:5,fill:'#4dd8ff'}));
+  craft.appendChild(svgEl('circle', {cx:16,cy:16,r:5,fill:'#4dd8ff'}));
+  craft.appendChild(svgEl('circle', {cx:0,cy:0,r:4,fill:'#ffb020'}));
+  hud.appendChild(craft);
+
+  function setCraftPosition(nx, ny){
+    // nx, ny in [-1, 1]
+    const cx = 150 + nx * 130;
+    const cy = 150 + ny * 130;
+    craft.setAttribute('transform', `translate(${cx},${cy})`);
+  }
+  setCraftPosition(0,0);
+
+  function setThrottle(t){
+    // t in [0,1]
+    const h = Math.max(0, Math.min(1, t)) * 220;
+    throttleFill.setAttribute('height', h);
+    throttleFill.setAttribute('y', 260 - h);
+  }
+
+  // ---------- Gamepad handling ----------
+  window.addEventListener('gamepadconnected', (e) => {
+    gpIndex = e.gamepad.index;
+    statusEl.textContent = (e.gamepad.id || 'CONTROLLER').toUpperCase().slice(0,42);
+    statusEl.classList.remove('no'); statusEl.classList.add('ok');
+  });
+  window.addEventListener('gamepaddisconnected', () => {
+    gpIndex = null;
+    statusEl.textContent = 'NO CONTROLLER DETECTED';
+    statusEl.classList.remove('ok'); statusEl.classList.add('no');
+  });
+
+  function buildAxisRow(i){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${i}</td>
+      <td class="val mono" id="axVal${i}">0.00</td>
+      <td class="bar-cell"><div class="bar"><i id="axBar${i}"></i></div></td>
+      <td>
+        <select id="axUse${i}" class="mono">
+          <option value="">--</option>
+          <option value="x">Roll / X</option>
+          <option value="y">Pitch / Y</option>
+          <option value="throttle">Throttle</option>
+        </select>
+      </td>`;
+    axisTableBody.appendChild(tr);
+    const sel = tr.querySelector('select');
+    if (i === cfg.x) sel.value = 'x';
+    if (i === cfg.y) sel.value = 'y';
+    if (i === cfg.throttle) sel.value = 'throttle';
+    sel.addEventListener('change', () => {
+      const use = sel.value;
+      if (use) cfg[use] = i;
+      // clear that role from any other axis' dropdown
+      document.querySelectorAll('#axisTable select').forEach(s => {
+        if (s !== sel && s.value === use && use) s.value = '';
+      });
+    });
+  }
+
+  function buildButtonLeds(n){
+    buttonGrid.innerHTML = '';
+    for (let i=0;i<n;i++){
+      const d = document.createElement('div');
+      d.className = 'btn-led mono';
+      d.id = 'btn' + i;
+      d.textContent = i;
+      buttonGrid.appendChild(d);
+    }
+  }
+
+  function ensureAxisTable(n){
+    if (n === axisCount) return;
+    axisCount = n;
+    axisTableBody.innerHTML = '';
+    for (let i=0;i<n;i++) buildAxisRow(i);
+  }
+  function ensureButtons(n){
+    if (n === buttonCount) return;
+    buttonCount = n;
+    buildButtonLeds(n);
+  }
+
+  function poll(){
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let gp = null;
+    if (gpIndex !== null) gp = pads[gpIndex];
+    if (!gp) {
+      for (const p of pads) if (p) { gp = p; gpIndex = p.index; break; }
+    }
+
+    if (gp) {
+      if (statusEl.classList.contains('no')) {
+        statusEl.textContent = (gp.id || 'CONTROLLER').toUpperCase().slice(0,42);
+        statusEl.classList.remove('no'); statusEl.classList.add('ok');
+      }
+      ensureAxisTable(gp.axes.length);
+      ensureButtons(gp.buttons.length);
+
+      for (let i=0;i<gp.axes.length;i++){
+        const v = gp.axes[i];
+        const valEl = document.getElementById('axVal'+i);
+        const barEl = document.getElementById('axBar'+i);
+        if (valEl) valEl.textContent = v.toFixed(2);
+        if (barEl){
+          const pct = ((v+1)/2)*100;
+          barEl.style.left = pct + '%';
+          barEl.style.width = (100-pct) > pct ? '2px' : '2px';
+          barEl.style.left = pct + '%';
+        }
+      }
+
+      for (let i=0;i<gp.buttons.length;i++){
+        const el = document.getElementById('btn'+i);
+        if (!el) continue;
+        const pressed = gp.buttons[i].pressed || gp.buttons[i].value > 0.5;
+        el.classList.toggle('on', pressed);
+      }
+
+      let x = gp.axes[cfg.x] || 0;
+      let y = gp.axes[cfg.y] || 0;
+      let t = gp.axes[cfg.throttle] || 0;
+      if (cfg.invertX) x = -x;
+      if (cfg.invertY) y = -y;
+      let tNorm = cfg.invertT ? (1 - (t+1)/2) : (t+1)/2;
+
+      setCraftPosition(x, y);
+      setThrottle(tNorm);
+      rX.textContent = x.toFixed(2);
+      rY.textContent = y.toFixed(2);
+      rT.textContent = tNorm.toFixed(2);
+    }
+
+    requestAnimationFrame(poll);
+  }
+  requestAnimationFrame(poll);
+})();
+</script>
+
+</body>
+</html>
