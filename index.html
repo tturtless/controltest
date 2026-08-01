@@ -1633,86 +1633,121 @@
     );
   }
 
-  // Builds a body mesh styled after real UAS Group 1-3 airframes, keyed by
-  // tier index: Group 1 (Scout) = small quad/multirotor, Group 2 (Runner) =
-  // small hand-launched fixed-wing, Group 3 (Evader) = larger fixed-wing.
-  // Tier 4 (Phantom) reuses the Group 3 fixed-wing shape, scaled up.
+  // Builds a body mesh styled after real UAS airframes, keyed by tier index:
+  // Group 1 (Scout) = thick quadrotor, Group 2 (Runner) = hexacopter
+  // (F550-style 6-arm multirotor), Group 3 (Evader) = Orlan-10-style
+  // pusher-prop fixed-wing with twin V-tail booms, Phantom (tier 4) =
+  // tailless swept flying-wing.
   function buildDroneBody(tierIdx, bodyMat, armMat){
     const body = new THREE.Group();
+    const propMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
 
     if (tierIdx === 0){
-      // ---- GROUP 1: small quadrotor (DJI/Raven-style), thickened core/arms ----
-      const core = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.46), bodyMat);
+      // ---- GROUP 1: small quadrotor, 3x thicker core/arms/motors ----
+      const core = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.72, 1.38), bodyMat);
       body.add(core);
       const armLen = 0.55;
       const armPositions = [
         [1, 1], [1, -1], [-1, 1], [-1, -1]
       ];
       armPositions.forEach(([sx, sz]) => {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.09, 0.1), armMat);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.27, 0.3), armMat);
         arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
         arm.rotation.y = Math.atan2(sz, sx);
         body.add(arm);
-        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.13, 8), armMat);
-        motor.position.set(sx * armLen, 0.03, sz * armLen);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.39, 8), armMat);
+        motor.position.set(sx * armLen, 0.09, sz * armLen);
         body.add(motor);
-        const propMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
         const prop = new THREE.Mesh(new THREE.CircleGeometry(0.24, 16), propMat);
         prop.rotation.x = -Math.PI / 2;
-        prop.position.set(sx * armLen, 0.1, sz * armLen);
+        prop.position.set(sx * armLen, 0.3, sz * armLen);
         body.add(prop);
       });
 
     } else if (tierIdx === 1){
-      // ---- GROUP 2: small fixed-wing (Switchblade/Scan Eagle-style) ----
-      const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.9, 8), bodyMat);
-      fuselage.rotation.z = Math.PI / 2;
+      // ---- GROUP 2: hexacopter (F550-style 6-arm multirotor) ----
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.14, 6), bodyMat);
+      body.add(core);
+      const armLen = 0.62;
+      for (let i = 0; i < 6; i++){
+        const ang = (i / 6) * Math.PI * 2;
+        const sx = Math.cos(ang), sz = Math.sin(ang);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.06, 0.08), armMat);
+        arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
+        arm.rotation.y = -ang;
+        body.add(arm);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.13, 8), armMat);
+        motor.position.set(sx * armLen, 0.03, sz * armLen);
+        body.add(motor);
+        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.26, 16), propMat);
+        prop.rotation.x = -Math.PI / 2;
+        prop.position.set(sx * armLen, 0.1, sz * armLen);
+        body.add(prop);
+        // landing leg, characteristic of the F550-style hex frame
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.32, 6), armMat);
+        leg.rotation.z = Math.PI / 8;
+        leg.position.set(sx * armLen * 0.85, -0.16, sz * armLen * 0.85);
+        body.add(leg);
+      }
+
+    } else if (tierIdx === 2){
+      // ---- GROUP 3: Orlan-10-style pusher-prop fixed-wing — bulbous
+      // rounded nose/fuselage pod, mid-mounted straight wing, twin
+      // tail booms with a V-tail, rear pusher prop ----
+      const fuselage = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), bodyMat);
+      fuselage.scale.set(1.5, 1, 1);
+      fuselage.position.set(0.15, 0, 0);
       body.add(fuselage);
-      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), bodyMat);
-      nose.position.set(0.45, 0, 0);
-      body.add(nose);
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.04, 0.28), bodyMat);
-      wing.position.set(0, 0, 0);
+      const tailCone = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.05, 0.65, 8), bodyMat);
+      tailCone.rotation.z = Math.PI / 2;
+      tailCone.position.set(-0.55, 0, 0);
+      body.add(tailCone);
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.05, 0.32), bodyMat);
+      wing.position.set(0, 0.05, 0);
       body.add(wing);
-      const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.04), bodyMat);
-      tailFin.position.set(-0.45, 0.12, 0);
-      body.add(tailFin);
-      const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.55), bodyMat);
-      tailPlane.position.set(-0.45, 0, 0);
-      body.add(tailPlane);
-      const noseProp = new THREE.Mesh(new THREE.CircleGeometry(0.16, 12), new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-      noseProp.rotation.y = Math.PI / 2;
-      noseProp.position.set(0.48, 0, 0);
-      body.add(noseProp);
+      // twin tail booms sweeping back from the wingtips to a V-tail
+      [1, -1].forEach(s => {
+        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.02, 0.9, 6), armMat);
+        boom.rotation.z = Math.PI / 2;
+        boom.position.set(-0.35, 0.02, s * 0.9);
+        body.add(boom);
+        const vfin = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.22), bodyMat);
+        vfin.position.set(-0.78, 0.1, s * 0.9);
+        vfin.rotation.z = s * 0.5; // canted outward/upward, forming the V
+        body.add(vfin);
+      });
+      const pusherProp = new THREE.Mesh(new THREE.CircleGeometry(0.22, 12), propMat);
+      pusherProp.rotation.y = Math.PI / 2;
+      pusherProp.position.set(-0.88, 0, 0);
+      body.add(pusherProp);
 
     } else {
-      // ---- GROUP 3: larger fixed-wing (Shadow RQ-7B-style), also used
-      // (scaled up further by the caller) for tier 4/Phantom ----
-      const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.1, 1.2, 8), bodyMat);
-      fuselage.rotation.z = Math.PI / 2;
-      body.add(fuselage);
-      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), bodyMat);
-      nose.position.set(0.6, 0, 0);
-      body.add(nose);
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.05, 0.34), bodyMat);
-      body.add(wing);
-      // twin tail booms, characteristic of the Shadow's silhouette
+      // ---- PHANTOM (tier 4): tailless swept flying-wing, built from boxes
+      // for guaranteed compatibility (avoids any Shape/Extrude geometry) ----
+      const center = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.16, 0.4), bodyMat);
+      body.add(center);
+      // swept wing panels, stepped outward and back to fake a smooth taper
       [1, -1].forEach(s => {
-        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.65, 6), armMat);
-        boom.rotation.z = Math.PI / 2;
-        boom.position.set(-0.55, 0, s * 0.55);
-        body.add(boom);
-        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 0.04), bodyMat);
-        fin.position.set(-0.85, 0.14, s * 0.55);
-        body.add(fin);
+        const seg1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.55), bodyMat);
+        seg1.position.set(-0.05, 0, s * 0.55);
+        seg1.rotation.y = s * 0.12;
+        body.add(seg1);
+        const seg2 = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 0.5), bodyMat);
+        seg2.position.set(-0.22, 0, s * 0.98);
+        seg2.rotation.y = s * 0.32;
+        body.add(seg2);
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.22), bodyMat);
+        tip.position.set(-0.38, 0.05, s * 1.28);
+        body.add(tip);
       });
-      const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 1.15), bodyMat);
-      tailPlane.position.set(-0.85, 0, 0);
-      body.add(tailPlane);
-      const pusherProp = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12), new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-      pusherProp.rotation.y = Math.PI / 2;
-      pusherProp.position.set(-0.65, 0, 0);
-      body.add(pusherProp);
+      const propHub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.1, 8), armMat);
+      propHub.rotation.x = Math.PI / 2;
+      propHub.position.set(0.32, 0, 0);
+      body.add(propHub);
+      const prop = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12), propMat);
+      prop.rotation.y = Math.PI / 2;
+      prop.position.set(0.37, 0, 0);
+      body.add(prop);
     }
 
     return body;
@@ -1722,7 +1757,7 @@
     const grp = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: tier.color, emissive: tier.emissive, emissiveIntensity: 0.7 });
     const armMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6 });
-    const groupIdx = Math.min(tierIdx === undefined ? 0 : tierIdx, 2); // tiers beyond Group 3 reuse the Group 3 airframe
+    const groupIdx = Math.min(tierIdx === undefined ? 0 : tierIdx, 3); // 0-2 = Group 1-3, 3 = Phantom flying-wing
     const body = buildDroneBody(groupIdx, bodyMat, armMat);
     body.scale.setScalar(tier.scale || 1);
     grp.add(body);
