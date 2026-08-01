@@ -1761,7 +1761,9 @@
           chuteGrp.rotation.y = THREE.MathUtils.lerp(chuteCollapseFromRot.y, targetRot.y, e);
           chuteGrp.rotation.z = THREE.MathUtils.lerp(chuteCollapseFromRot.z, targetRot.z, e);
         }
-        chuteGrp.position.y = THREE.MathUtils.lerp(1.6, 0, e);
+        chuteGrp.position.y = THREE.MathUtils.lerp(1.6, 0.35, e);
+        chuteGrp.position.x = THREE.MathUtils.lerp(0, 1.1, e); // drift out to the side so the canopy settles next to the netted drone, not through it
+        chuteGrp.position.z = THREE.MathUtils.lerp(0, 0.4, e);
         const yScale = THREE.MathUtils.lerp(1, 0.15, e);
         chuteGrp.scale.set(1, yScale, 1);
       }
@@ -1800,6 +1802,7 @@
       chuteGrp.add(new THREE.Line(geo, lineMat));
     }
     grp.add(chuteGrp);
+    chuteGrp.position.set(0, 1.6, 0);
     grp.userData.chute = chuteGrp;
   }
 
