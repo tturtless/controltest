@@ -688,8 +688,8 @@
   let netGameActive = false;
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
   let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
-  const NET_SPEED = 79.2;           // m/s, muzzle velocity — cut 20% from previous
-  const NET_GRAVITY = -9;           // moderate droop — steep launch angle now handles the short range, gravity just governs the arc
+  const NET_SPEED = 18;             // m/s, muzzle velocity — short, controlled toss
+  const NET_GRAVITY = -22;          // strong droop so the net arcs down quickly instead of sailing
   // NET_LIFETIME removed — an unfired net now stays live until it hits the ground
   const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
   const NET_MAX_SCALE = 3.4;        // fully blossomed net radius (meters) — extra-wide coverage
