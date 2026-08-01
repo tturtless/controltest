@@ -1630,11 +1630,94 @@
     );
   }
 
-  function createRogueDrone(tier){
+  // Builds a body mesh styled after real UAS Group 1-3 airframes, keyed by
+  // tier index: Group 1 (Scout) = small quad/multirotor, Group 2 (Runner) =
+  // small hand-launched fixed-wing, Group 3 (Evader) = larger fixed-wing.
+  // Tier 4 (Phantom) reuses the Group 3 fixed-wing shape, scaled up.
+  function buildDroneBody(tierIdx, bodyMat, armMat){
+    const body = new THREE.Group();
+
+    if (tierIdx === 0){
+      // ---- GROUP 1: small quadrotor (DJI/Raven-style) ----
+      const core = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.34), bodyMat);
+      body.add(core);
+      const armLen = 0.55;
+      const armPositions = [
+        [1, 1], [1, -1], [-1, 1], [-1, -1]
+      ];
+      armPositions.forEach(([sx, sz]) => {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.05, 0.06), armMat);
+        arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
+        arm.rotation.y = Math.atan2(sz, sx);
+        body.add(arm);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.1, 8), armMat);
+        motor.position.set(sx * armLen, 0.02, sz * armLen);
+        body.add(motor);
+        const propMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), propMat);
+        prop.rotation.x = -Math.PI / 2;
+        prop.position.set(sx * armLen, 0.08, sz * armLen);
+        body.add(prop);
+      });
+
+    } else if (tierIdx === 1){
+      // ---- GROUP 2: small fixed-wing (Switchblade/Scan Eagle-style) ----
+      const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.85, 4, 8), bodyMat);
+      fuselage.rotation.z = Math.PI / 2;
+      body.add(fuselage);
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.04, 0.28), bodyMat);
+      wing.position.set(0, 0, 0);
+      body.add(wing);
+      const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.04), bodyMat);
+      tailFin.position.set(-0.45, 0.12, 0);
+      body.add(tailFin);
+      const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.55), bodyMat);
+      tailPlane.position.set(-0.45, 0, 0);
+      body.add(tailPlane);
+      const noseProp = new THREE.Mesh(new THREE.CircleGeometry(0.16, 12), new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+      noseProp.rotation.y = Math.PI / 2;
+      noseProp.position.set(0.48, 0, 0);
+      body.add(noseProp);
+
+    } else {
+      // ---- GROUP 3: larger fixed-wing (Shadow RQ-7B-style), also used
+      // (scaled up further by the caller) for tier 4/Phantom ----
+      const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 1.15, 4, 8), bodyMat);
+      fuselage.rotation.z = Math.PI / 2;
+      body.add(fuselage);
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.05, 0.34), bodyMat);
+      body.add(wing);
+      // twin tail booms, characteristic of the Shadow's silhouette
+      [1, -1].forEach(s => {
+        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.65, 6), armMat);
+        boom.rotation.z = Math.PI / 2;
+        boom.position.set(-0.55, 0, s * 0.55);
+        body.add(boom);
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 0.04), bodyMat);
+        fin.position.set(-0.85, 0.14, s * 0.55);
+        body.add(fin);
+      });
+      const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 1.15), bodyMat);
+      tailPlane.position.set(-0.85, 0, 0);
+      body.add(tailPlane);
+      const pusherProp = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12), new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+      pusherProp.rotation.y = Math.PI / 2;
+      pusherProp.position.set(-0.65, 0, 0);
+      body.add(pusherProp);
+    }
+
+    return body;
+  }
+
+  function createRogueDrone(tier, tierIdx){
     const grp = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: tier.color, emissive: tier.emissive, emissiveIntensity: 0.7 });
-    const body = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), bodyMat);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6 });
+    const groupIdx = Math.min(tierIdx === undefined ? 0 : tierIdx, 2); // tiers beyond Group 3 reuse the Group 3 airframe
+    const body = buildDroneBody(groupIdx, bodyMat, armMat);
+    if (tierIdx >= 3) body.scale.setScalar(1.35); // Phantom: scaled-up Group 3 fixed-wing
     grp.add(body);
+    grp.userData.body = body;
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.95, 0.05, 8, 24),
       new THREE.MeshBasicMaterial({ color: tier.color, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
@@ -1660,7 +1743,7 @@
       rogueGroup = null;
     }
     const tier = ROGUE_TIERS[Math.min(rogueTierIdx, ROGUE_TIERS.length - 1)];
-    rogueGroup = createRogueDrone(tier);
+    rogueGroup = createRogueDrone(tier, rogueTierIdx);
     pickRogueTarget();
     rogueGroup.position.copy(rogueTarget);
     pickRogueTarget();
@@ -1708,7 +1791,18 @@
           }
         }
       }
-      rogueGroup.rotation.y += 2.6 * dt;
+      // orient the body to actually face its direction of travel, like a
+      // real aircraft/quad — no more constant spin-in-place, which looked
+      // broken once the body became a real quad/fixed-wing shape instead of
+      // a symmetric octahedron
+      if (toTarget.lengthSq() > 0.0001 && rogueGroup.userData.body){
+        const desiredYaw = Math.atan2(toTarget.x, toTarget.z) + Math.PI / 2; // model's nose points along +X
+        let yawDiff = desiredYaw - rogueGroup.userData.body.rotation.y;
+        yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff)); // shortest-path wrap, avoids snapping the long way around
+        rogueGroup.userData.body.rotation.y += yawDiff * Math.min(1, 6 * dt);
+      }
+      // the accent ring keeps its own independent spin as the "rogue" tell —
+      // it's a separate child mesh, so this no longer fights the body's facing
       if (rogueGroup.userData.ring) rogueGroup.userData.ring.rotation.z += 3.2 * dt;
       // frantic blinking beacon, the "rogue" tell
       rogueGroup.userData.blink += dt;
