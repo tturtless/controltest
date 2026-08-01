@@ -720,6 +720,7 @@
   let chuteCollapseT = 0;           // 0 = just landed (still inflated), 1 = fully collapsed flat
   let chuteHeight = 1.6;            // current canopy height above the drone (world units)
   let chuteScale = 1;               // current canopy scale (1 = full open)
+  let chuteLateralAngle = 0;        // horizontal direction the chute drifts to once grounded
   let containedCount = 0;
 
   // ---- Rogue drone "skill tiers" — each capture escalates the challenge.
@@ -1741,7 +1742,7 @@
         rogueGroup.rotation.z += 9 * dt;
       }
       rogueGroup.position.addScaledVector(rogueVel, dt);
-      if (rogueChuteOpen) updateChuteRig(rogueGroup, chuteHeight, chuteScale);
+      if (rogueChuteOpen) updateChuteRig(rogueGroup, chuteHeight, chuteScale, 0, 0);
       if (rogueGroup.position.y <= ROGUE_GROUND_Y){
         rogueGroup.position.y = ROGUE_GROUND_Y;
         rogueVel.set(0,0,0);
@@ -1750,19 +1751,22 @@
         rogueGroundTimer = 0;
         // start a smooth collapse of the chute onto the ground instead of snapping it flat
         chuteCollapseT = 0;
+        chuteLateralAngle = Math.random() * Math.PI * 2; // random direction to fall to the side, away from the net
         flyMsg.textContent = 'ROGUE DRONE DOWN — despawning in 10s';
         setTimeout(() => { if (netGameActive && rogueState === 'grounded') flyMsg.textContent = ''; }, 1800);
       }
 
     } else if (rogueState === 'grounded'){
       rogueGroundTimer += dt;
-      // smoothly ease the chute from its just-landed pose down to flat-on-the-ground
+      // smoothly ease the chute from its just-landed pose down to flat-on-the-ground, off to the side of the net
       if (rogueGroup.userData.chute && chuteCollapseT < 1){
         chuteCollapseT = Math.min(1, chuteCollapseT + dt / CHUTE_COLLAPSE_TIME);
         const e = 1 - Math.pow(1 - chuteCollapseT, 3); // ease-out cubic, gentle settle rather than a sudden snap
-        chuteHeight = THREE.MathUtils.lerp(1.6, 0.05, e); // canopy sinks down to just above the ground/net
+        chuteHeight = THREE.MathUtils.lerp(1.6, 0.05, e); // canopy sinks down to just above the ground
         chuteScale = THREE.MathUtils.lerp(1, 0.5, e);     // and shrinks/deflates as it settles
-        updateChuteRig(rogueGroup, chuteHeight, chuteScale);
+        const lateralDist = THREE.MathUtils.lerp(0, 1.6, e); // drifts out to the side so it lands beside the net, not through it
+        const lateralOffset = lateralDist; // magnitude; direction applied via chuteLateralAngle below
+        updateChuteRig(rogueGroup, chuteHeight, chuteScale, lateralOffset, chuteLateralAngle);
       }
       if (rogueGroundTimer >= ROGUE_DESPAWN_AFTER){
         if (rogueGroup.userData.chute) scene.remove(rogueGroup.userData.chute);
@@ -1811,15 +1815,21 @@
     grp.userData.chute = chuteGrp;
   }
 
-  // Keeps the chute canopy positioned above the drone and redraws the shroud
-  // lines each frame from the canopy's rim down to the drone's actual current
-  // position, so the cords never visually detach from the net as it tumbles,
-  // drifts, or lands.
-  function updateChuteRig(grp, canopyHeight, canopyScale){
+  // Keeps the chute canopy positioned above (and, once grounded, beside) the
+  // drone, and redraws the shroud lines each frame from the canopy's rim down
+  // to points on the net's outer wrap-sphere surface — not the drone's center
+  // — so the cords always look like they're tied to the net itself and never
+  // detach visually as it tumbles, drifts, or lands.
+  const NET_WRAP_RADIUS = 0.8; // matches the wrap sphere geometry radius in captureRogue()
+  function updateChuteRig(grp, canopyHeight, canopyScale, lateralOffset, lateralAngle){
     const chuteGrp = grp.userData.chute;
     if (!chuteGrp) return;
+    lateralOffset = lateralOffset || 0;
+    lateralAngle = lateralAngle || 0;
     const dronePos = grp.position;
-    const canopyCenter = new THREE.Vector3(dronePos.x, dronePos.y + canopyHeight, dronePos.z);
+    const offsetX = Math.cos(lateralAngle) * lateralOffset;
+    const offsetZ = Math.sin(lateralAngle) * lateralOffset;
+    const canopyCenter = new THREE.Vector3(dronePos.x + offsetX, dronePos.y + canopyHeight, dronePos.z + offsetZ);
     chuteGrp.position.copy(canopyCenter);
     chuteGrp.userData.canopy.scale.setScalar(canopyScale);
     const rimR = 0.85 * canopyScale;
@@ -1828,9 +1838,13 @@
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
       const rimWorld = new THREE.Vector3(Math.cos(ang) * rimR, 0.05 * canopyScale, Math.sin(ang) * rimR).add(canopyCenter);
+      // anchor point on the outside surface of the net's wrap sphere, facing this rim point
+      const towardRim = rimWorld.clone().sub(dronePos);
+      const anchorDir = towardRim.lengthSq() > 0.0001 ? towardRim.normalize() : new THREE.Vector3(0, 1, 0);
+      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, NET_WRAP_RADIUS);
       const rimLocal = rimWorld.clone().sub(chuteGrp.position);
-      const droneLocal = dronePos.clone().sub(chuteGrp.position);
-      lines[i].geometry.setFromPoints([rimLocal, droneLocal]);
+      const anchorLocal = netAnchorWorld.clone().sub(chuteGrp.position);
+      lines[i].geometry.setFromPoints([rimLocal, anchorLocal]);
     }
   }
 
