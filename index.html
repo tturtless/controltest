@@ -729,8 +729,8 @@
   // mirrors the UAS Group 1-4 chart's own range/speed progression.
   const ROGUE_TIERS = [
     { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0,    scale: 1.0, roamRadius: 45, turnRate: 6  },
-    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.3, roamRadius: 60, turnRate: 8  },
-    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 1.7, roamRadius: 78, turnRate: 10 },
+    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.7, roamRadius: 60, turnRate: 8  },
+    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 2.3, roamRadius: 78, turnRate: 10 },
     { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6,  scale: 1.9, roamRadius: 90, turnRate: 10 },
   ];
   let rogueTierIdx = 0;
@@ -1641,25 +1641,25 @@
     const body = new THREE.Group();
 
     if (tierIdx === 0){
-      // ---- GROUP 1: small quadrotor (DJI/Raven-style) ----
-      const core = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.34), bodyMat);
+      // ---- GROUP 1: small quadrotor (DJI/Raven-style), thickened core/arms ----
+      const core = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.46), bodyMat);
       body.add(core);
       const armLen = 0.55;
       const armPositions = [
         [1, 1], [1, -1], [-1, 1], [-1, -1]
       ];
       armPositions.forEach(([sx, sz]) => {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.05, 0.06), armMat);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.09, 0.1), armMat);
         arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
         arm.rotation.y = Math.atan2(sz, sx);
         body.add(arm);
-        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.1, 8), armMat);
-        motor.position.set(sx * armLen, 0.02, sz * armLen);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.13, 8), armMat);
+        motor.position.set(sx * armLen, 0.03, sz * armLen);
         body.add(motor);
         const propMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
-        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), propMat);
+        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.24, 16), propMat);
         prop.rotation.x = -Math.PI / 2;
-        prop.position.set(sx * armLen, 0.08, sz * armLen);
+        prop.position.set(sx * armLen, 0.1, sz * armLen);
         body.add(prop);
       });
 
@@ -1925,7 +1925,7 @@
   // to points on the net's outer wrap-sphere surface — not the drone's center
   // — so the cords always look like they're tied to the net itself and never
   // detach visually as it tumbles, drifts, or lands.
-  const NET_WRAP_RADIUS = 0.8; // matches the wrap sphere geometry radius in captureRogue()
+  const NET_WRAP_RADIUS = 0.8; // fallback if a drone somehow has no stored wrap radius
   function updateChuteRig(grp, canopyHeight, canopyScale, lateralOffset, lateralAngle, flatten){
     const chuteGrp = grp.userData.chute;
     if (!chuteGrp) return;
@@ -1933,6 +1933,7 @@
     lateralAngle = lateralAngle || 0;
     flatten = flatten === undefined ? 1 : flatten; // 1 = full dome height, toward 0 = pancaked flat
     const dronePos = grp.position;
+    const wrapRadius = grp.userData.wrapRadius || NET_WRAP_RADIUS; // matches this drone's actual scaled wrap sphere
     const offsetX = Math.cos(lateralAngle) * lateralOffset;
     const offsetZ = Math.sin(lateralAngle) * lateralOffset;
     const canopyCenter = new THREE.Vector3(dronePos.x + offsetX, dronePos.y + canopyHeight, dronePos.z + offsetZ);
@@ -1947,7 +1948,7 @@
       // anchor point on the outside surface of the net's wrap sphere, facing this rim point
       const towardRim = rimWorld.clone().sub(dronePos);
       const anchorDir = towardRim.lengthSq() > 0.0001 ? towardRim.normalize() : new THREE.Vector3(0, 1, 0);
-      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, NET_WRAP_RADIUS);
+      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, wrapRadius);
       const rimLocal = rimWorld.clone().sub(chuteGrp.position);
       const anchorLocal = netAnchorWorld.clone().sub(chuteGrp.position);
       lines[i].geometry.setFromPoints([rimLocal, anchorLocal]);
@@ -2065,12 +2066,15 @@
     rogueVel.y = Math.max(rogueVel.y, 4.5); // strong vertical pop for a visible apogee before the chute settles it
 
     if (rogueGroup && !rogueGroup.userData.wrap){
+      const tierScale = (rogueGroup.userData.tier && rogueGroup.userData.tier.scale) || 1;
+      const wrapRadius = 0.8 * tierScale; // scale wrap to match the drone's actual body size so the net properly encloses bigger airframes
       const wrap = new THREE.Mesh(
-        new THREE.SphereGeometry(0.8, 8, 6),
+        new THREE.SphereGeometry(wrapRadius, 8, 6),
         new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.75 })
       );
       rogueGroup.add(wrap);
       rogueGroup.userData.wrap = wrap;
+      rogueGroup.userData.wrapRadius = wrapRadius;
     }
     if (rogueGroup && rogueGroup.userData.beacon) rogueGroup.userData.beacon.color.set(0x888888);
 
