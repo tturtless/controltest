@@ -688,7 +688,7 @@
   let netGameActive = false;
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
   let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
-  const NET_SPEED = 99;             // m/s, muzzle velocity — travel speed tripled again
+  const NET_SPEED = 79.2;           // m/s, muzzle velocity — cut 20% from previous
   const NET_GRAVITY = -3;           // gentle droop so the short throw still arcs a little
   // NET_LIFETIME removed — an unfired net now stays live until it hits the ground
   const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
@@ -1831,11 +1831,14 @@
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
     const launchDir = forward.clone().addScaledVector(up, 0.22).normalize();
     const mesh = createNetProjectileMesh();
-    mesh.position.copy(pos).addScaledVector(forward, 0.6);
+    const launchPos = pos.clone().addScaledVector(forward, 0.6);
+    mesh.position.copy(launchPos);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), launchDir);
     scene.add(mesh);
-    netProjectiles.push({ mesh, vel: launchDir.clone().multiplyScalar(NET_SPEED), age: 0 });
+    netProjectiles.push({ mesh, vel: launchDir.clone().multiplyScalar(NET_SPEED), age: 0, launchPos });
   }
+
+  const NET_MAX_RANGE = 22;         // meters — net despawns after traveling this far (cut to 1/4 of prior reach)
 
   function updateNetProjectiles(dt){
     for (let i = netProjectiles.length - 1; i >= 0; i--){
@@ -1865,7 +1868,8 @@
           spent = true;
         }
       }
-      if (spent || np.mesh.position.y < 0){
+      const traveled = np.mesh.position.distanceTo(np.launchPos);
+      if (spent || traveled > NET_MAX_RANGE || np.mesh.position.y < 0){
         scene.remove(np.mesh);
         netProjectiles.splice(i, 1);
       }
