@@ -1763,7 +1763,7 @@
         chuteCollapseT = Math.min(1, chuteCollapseT + dt / CHUTE_COLLAPSE_TIME);
         const e = 1 - Math.pow(1 - chuteCollapseT, 3); // ease-out cubic, gentle settle rather than a sudden snap
         chuteHeight = THREE.MathUtils.lerp(1.6, 0.05, e); // canopy sinks down to just above the ground
-        chuteScale = THREE.MathUtils.lerp(1, 0.5, e);     // and shrinks/deflates as it settles
+        chuteScale = THREE.MathUtils.lerp(1, 0.8, e);      // deflates only slightly, stays a visible size on the ground
         const lateralDist = THREE.MathUtils.lerp(0, 1.6, e); // drifts out to the side so it lands beside the net, not through it
         const lateralOffset = lateralDist; // magnitude; direction applied via chuteLateralAngle below
         updateChuteRig(rogueGroup, chuteHeight, chuteScale, lateralOffset, chuteLateralAngle);
