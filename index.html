@@ -716,7 +716,7 @@
   const ROGUE_GRAVITY = -16;        // netted drones drop faster/heavier than the player craft
   const ROGUE_GROUND_Y = 0.4;
   const ROGUE_DESPAWN_AFTER = 10;   // seconds sitting on the ground before it despawns
-  const CHUTE_COLLAPSE_TIME = 0.6;  // s for the chute to settle/flatten onto the ground after landing
+  const CHUTE_COLLAPSE_TIME = 0.75; // s for the chute to settle/flatten onto the ground after landing
   let chuteCollapseT = 0;           // 0 = just landed (still inflated), 1 = fully collapsed flat
   let chuteCollapseFromRot = null;  // captured chute rotation at the moment of landing (for lerp start)
   let containedCount = 0;
@@ -1787,11 +1787,11 @@
     const chuteGrp = new THREE.Group();
     const canopy = new THREE.Mesh(
       new THREE.SphereGeometry(0.9, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
     canopy.position.y = 1.6;
     chuteGrp.add(canopy);
-    const lineMat = new THREE.LineBasicMaterial({ color: 0xcfefff, transparent: true, opacity: 0.7 });
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.7 });
     const lineCount = 6;
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
@@ -1810,7 +1810,7 @@
   function createNetProjectileMesh(){
     const grp = new THREE.Group();
     const spinner = new THREE.Group(); // spins independently of the aim orientation
-    const netMat = new THREE.LineBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.9 });
+    const netMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
 
     const SPOKES = 8;
     for (let i = 0; i < SPOKES; i++){
@@ -1916,7 +1916,7 @@
     if (rogueGroup && !rogueGroup.userData.wrap){
       const wrap = new THREE.Mesh(
         new THREE.SphereGeometry(0.8, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0x4dd8ff, wireframe: true, transparent: true, opacity: 0.75 })
+        new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.75 })
       );
       rogueGroup.add(wrap);
       rogueGroup.userData.wrap = wrap;
