@@ -243,7 +243,7 @@
       <button class="cal-btn mono" id="flyBtnAir65" data-drone="air65">▶ BetaFPV Air65 <span style="opacity:.55">7000KV</span></button>
       <button class="cal-btn mono" id="flyBtnViper" data-drone="viper">▶ Viper Racer5 <span style="opacity:.55">5000KV</span></button>
       <button class="cal-btn mono" id="flyBtnTitan" data-drone="titan">▶ Titan Cinewhoop <span style="opacity:.55">3000KV</span></button>
-      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#4dd8ff; color:#4dd8ff;" title="Chase down a rogue drone and fire nets at it: flip the switch on axis 6 (or key N) to launch one wide-opening net, flip off then on again to reload. A hit drops the drone to the ground, where it despawns after 10s.">🕸 NET CHASE <span style="opacity:.55">7000KV</span></button>
+      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#4dd8ff; color:#4dd8ff;" title="Chase down rogue drones and fire nets at them: flip the switch on axis 6 (or key N) to launch one wide, high-powered net, flip off then on again to reload. A hit pops a parachute and drops the drone to the ground, where it despawns after 10s. Each capture spawns a faster, more evasive rogue tier: Scout, Runner, Evader, Phantom.">🕸 NET CHASE <span style="opacity:.55">7000KV</span></button>
     </div>
     <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
   </div>
@@ -688,14 +688,20 @@
   let netGameActive = false;
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
   let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
-  const NET_SPEED = 42;             // m/s, muzzle velocity of a fired net
+  const NET_SPEED = 68;             // m/s, muzzle velocity of a fired net (punchier launcher)
   const NET_GRAVITY = -5;           // gentle droop so the net arcs a little
   const NET_LIFETIME = 3.2;         // seconds before an unfired-hit net despawns
   const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
-  const NET_MAX_SCALE = 2.1;        // fully blossomed net radius (meters) — wide coverage
-  const NET_OPEN_TIME = 0.28;       // seconds to go from bundled to fully open
-  const ROGUE_HIT_PAD = 0.6;        // extra forgiveness added to the net's open radius for the hit test
+  const NET_MAX_SCALE = 3.4;        // fully blossomed net radius (meters) — extra-wide coverage
+  const NET_OPEN_TIME = 0.16;       // seconds to go from bundled to fully open (snappier deploy)
+  const ROGUE_HIT_PAD = 0.9;        // extra forgiveness added to the net's open radius for the hit test
   let netProjectiles = [];          // in-flight nets: {mesh, vel, age}
+
+  // Parachute deployed on the netted drone once it's captured, so it drifts
+  // down under canopy instead of just free-falling.
+  const CHUTE_DEPLOY_DELAY = 0.15;  // s after capture before the chute "pops"
+  const CHUTE_DRAG = 3.2;           // extra downward drag once chute is open
+  const CHUTE_TERMINAL_VY = -2.2;   // max fall speed once chute is fully open
 
   let rogueGroup = null;
   let rogueAlive = false;
@@ -703,13 +709,25 @@
   let rogueTarget = new THREE.Vector3();
   let rogueVel = new THREE.Vector3();
   let rogueGroundTimer = 0;
-  const ROGUE_SPEED = 6.5;
+  let rogueChuteTimer = 0;
+  let rogueChuteOpen = false;
   const ROGUE_CENTER = new THREE.Vector3(0, 14, 0);
   const ROGUE_RADIUS = 45;
   const ROGUE_GRAVITY = -16;        // netted drones drop faster/heavier than the player craft
   const ROGUE_GROUND_Y = 0.4;
   const ROGUE_DESPAWN_AFTER = 10;   // seconds sitting on the ground before it despawns
   let containedCount = 0;
+
+  // ---- Rogue drone "skill tiers" — each capture escalates the challenge.
+  // Tier stats scale up speed and add evasive weaving so later drones are
+  // genuinely harder to net, not just cosmetically different.
+  const ROGUE_TIERS = [
+    { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0    },
+    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 9.5,  weave: 2.2,  weaveFreq: 1.6, dodge: 0    },
+    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 12.5, weave: 3.4,  weaveFreq: 2.2, dodge: 0.35 },
+    { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6  },
+  ];
+  let rogueTierIdx = 0;
 
   // camera mount angle (degrees tilted "up" from the frame's flat plane, 0-45)
   let camAngleDeg = 20;
@@ -1607,29 +1625,33 @@
     );
   }
 
-  function createRogueDrone(){
+  function createRogueDrone(tier){
     const grp = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff2d3d, emissive: 0x661015, emissiveIntensity: 0.7 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: tier.color, emissive: tier.emissive, emissiveIntensity: 0.7 });
     const body = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), bodyMat);
     grp.add(body);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.95, 0.05, 8, 24),
-      new THREE.MeshBasicMaterial({ color: 0xff4d5e, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: tier.color, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
     );
     ring.rotation.x = Math.PI / 2;
     grp.add(ring);
     grp.userData.ring = ring;
-    const beacon = new THREE.PointLight(0xff2d3d, 1.4, 16);
+    const beacon = new THREE.PointLight(tier.color, 1.4, 16);
     grp.add(beacon);
     grp.userData.beacon = beacon;
     grp.userData.blink = 0;
+    grp.userData.tier = tier;
+    grp.userData.weavePhase = Math.random() * Math.PI * 2;
+    grp.userData.dodgeCooldown = 0;
     scene.add(grp);
     return grp;
   }
 
   function spawnRogue(){
     if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
-    rogueGroup = createRogueDrone();
+    const tier = ROGUE_TIERS[Math.min(rogueTierIdx, ROGUE_TIERS.length - 1)];
+    rogueGroup = createRogueDrone(tier);
     pickRogueTarget();
     rogueGroup.position.copy(rogueTarget);
     pickRogueTarget();
@@ -1637,10 +1659,14 @@
     rogueState = 'flying';
     rogueVel.set(0, 0, 0);
     rogueGroundTimer = 0;
+    rogueChuteTimer = 0;
+    rogueChuteOpen = false;
+    if (flyGameOsd) flyGameOsd.textContent = `ROGUE DRONES CONTAINED: ${containedCount}  |  TARGET: ${tier.name}`;
   }
 
   function updateRogueDrone(dt){
     if (!rogueAlive || !rogueGroup) return;
+    const tier = rogueGroup.userData.tier || ROGUE_TIERS[0];
 
     if (rogueState === 'flying'){
       const toTarget = rogueTarget.clone().sub(rogueGroup.position);
@@ -1649,7 +1675,26 @@
         pickRogueTarget();
       } else {
         toTarget.normalize();
-        rogueGroup.position.addScaledVector(toTarget, ROGUE_SPEED * dt);
+        rogueGroup.position.addScaledVector(toTarget, tier.speed * dt);
+      }
+      // higher-tier drones weave laterally, making them harder to lead with a net
+      if (tier.weave > 0){
+        rogueGroup.userData.weavePhase += tier.weaveFreq * dt;
+        const lateral = new THREE.Vector3(-toTarget.z, 0, toTarget.x); // perpendicular to travel
+        rogueGroup.position.addScaledVector(lateral, Math.sin(rogueGroup.userData.weavePhase) * tier.weave * dt);
+      }
+      // top-tier drones actively dodge nets that get close, juking sideways
+      if (tier.dodge > 0){
+        rogueGroup.userData.dodgeCooldown -= dt;
+        for (const np of netProjectiles){
+          if (np.mesh.position.distanceTo(rogueGroup.position) < 6 && rogueGroup.userData.dodgeCooldown <= 0){
+            const away = rogueGroup.position.clone().sub(np.mesh.position).normalize();
+            const juke = new THREE.Vector3(-away.z, 0.3, away.x);
+            rogueGroup.position.addScaledVector(juke, tier.dodge * 6);
+            rogueGroup.userData.dodgeCooldown = 0.8;
+            break;
+          }
+        }
       }
       rogueGroup.rotation.y += 2.6 * dt;
       if (rogueGroup.userData.ring) rogueGroup.userData.ring.rotation.z += 3.2 * dt;
@@ -1660,11 +1705,27 @@
       }
 
     } else if (rogueState === 'falling'){
-      // netted: tumbling out of control and dropping to the ground
+      // netted: tumbling out of control briefly, then the parachute pops and
+      // it drifts down slowly under canopy
+      rogueChuteTimer += dt;
+      if (!rogueChuteOpen && rogueChuteTimer >= CHUTE_DEPLOY_DELAY){
+        deployChute(rogueGroup);
+        rogueChuteOpen = true;
+      }
       rogueVel.y += ROGUE_GRAVITY * dt;
+      if (rogueChuteOpen){
+        // drag slows the fall to a gentle drift once the chute is out
+        rogueVel.y += CHUTE_DRAG * dt;
+        rogueVel.y = Math.max(rogueVel.y, CHUTE_TERMINAL_VY);
+        rogueVel.x *= Math.max(0, 1 - 2 * dt);
+        rogueVel.z *= Math.max(0, 1 - 2 * dt);
+        rogueGroup.rotation.x += 1.2 * dt; // gentle sway, not a tumble, once under canopy
+        rogueGroup.rotation.z += 1.6 * dt;
+      } else {
+        rogueGroup.rotation.x += 7 * dt;
+        rogueGroup.rotation.z += 9 * dt;
+      }
       rogueGroup.position.addScaledVector(rogueVel, dt);
-      rogueGroup.rotation.x += 7 * dt;
-      rogueGroup.rotation.z += 9 * dt;
       if (rogueGroup.position.y <= ROGUE_GROUND_Y){
         rogueGroup.position.y = ROGUE_GROUND_Y;
         rogueVel.set(0,0,0);
@@ -1682,12 +1743,37 @@
         rogueGroup = null;
         rogueAlive = false;
         if (netGameActive){
-          flyMsg.textContent = 'NEW ROGUE DRONE INBOUND';
-          setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 1500);
+          rogueTierIdx = Math.min(rogueTierIdx + 1, ROGUE_TIERS.length - 1);
+          const nextTier = ROGUE_TIERS[rogueTierIdx];
+          flyMsg.textContent = `NEW ROGUE DRONE INBOUND — ${nextTier.name}`;
+          setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 1800);
           spawnRogue();
         }
       }
     }
+  }
+
+  // Deploys a small canopy above the captured drone once netted — a simple
+  // billowed dome + shroud lines, matched in color to the net itself.
+  function deployChute(grp){
+    if (grp.userData.chute) return;
+    const chuteGrp = new THREE.Group();
+    const canopy = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+    );
+    canopy.position.y = 1.6;
+    chuteGrp.add(canopy);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xcfefff, transparent: true, opacity: 0.7 });
+    const lineCount = 6;
+    for (let i = 0; i < lineCount; i++){
+      const ang = (i / lineCount) * Math.PI * 2;
+      const rim = new THREE.Vector3(Math.cos(ang) * 0.85, 1.65, Math.sin(ang) * 0.85);
+      const geo = new THREE.BufferGeometry().setFromPoints([rim, new THREE.Vector3(0, 0, 0)]);
+      chuteGrp.add(new THREE.Line(geo, lineMat));
+    }
+    grp.add(chuteGrp);
+    grp.userData.chute = chuteGrp;
   }
 
   // A woven-look net disc: radial "spokes" + concentric rings + weighted
@@ -1785,6 +1871,8 @@
   // 10s later — same "Iron-Drone-Raider"-style net-and-drop, arcade timing.
   function captureRogue(impactVel){
     rogueState = 'falling';
+    rogueChuteTimer = 0;
+    rogueChuteOpen = false;
     rogueVel.copy(impactVel).multiplyScalar(0.3);
     rogueVel.y = Math.max(rogueVel.y, 1.5); // small pop from the impact before gravity wins
 
@@ -1799,9 +1887,10 @@
     if (rogueGroup && rogueGroup.userData.beacon) rogueGroup.userData.beacon.color.set(0x888888);
 
     containedCount++;
+    const tierName = rogueGroup && rogueGroup.userData.tier ? rogueGroup.userData.tier.name : 'ROGUE DRONE';
     if (flyGameOsd) flyGameOsd.textContent = `ROGUE DRONES CONTAINED: ${containedCount}`;
-    flyMsg.textContent = `NET HIT! (${containedCount})`;
-    setTimeout(() => { if (netGameActive && rogueState === 'falling') flyMsg.textContent = ''; }, 1200);
+    flyMsg.textContent = `NET HIT! ${tierName} CAPTURED — CHUTE DEPLOYING (${containedCount})`;
+    setTimeout(() => { if (netGameActive && rogueState === 'falling') flyMsg.textContent = ''; }, 1600);
   }
 
   let lastTime = null;
@@ -1969,6 +2058,7 @@
     flyDroneLabel.textContent = 'ROGUE DRONE CONTAINMENT // AIR65 7000KV';
 
     containedCount = 0;
+    rogueTierIdx = 0;
     netGameActive = true;
     netSwitchPrev = false;
     if (flyNetLabel) { flyNetLabel.style.display = 'block'; flyNetLabel.textContent = 'NET: READY'; flyNetLabel.style.color = '#4dd8ff'; }
@@ -1976,7 +2066,7 @@
 
     spawnRogue();
 
-    flyMsg.textContent = 'Chase the rogue drone. Flip the net switch (axis 6 / key N) on to fire one net — flip it off then on again to reload the next.';
+    flyMsg.textContent = 'Chase the rogue drone. Flip the net switch (axis 6 / key N) on to fire one wide, powerful net — flip it off then on again to reload. Each capture brings a tougher rogue.';
     setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 5000);
   }
 
