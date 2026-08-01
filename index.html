@@ -699,7 +699,7 @@
 
   // Parachute deployed on the netted drone once it's captured, so it drifts
   // down under canopy instead of just free-falling.
-  const CHUTE_DEPLOY_DELAY = 0.15;  // s after capture before the chute "pops"
+  const CHUTE_DEPLOY_DELAY = 0.45;  // s after capture before the chute "pops" — lets the impact pop peak first
   const CHUTE_DRAG = 3.2;           // extra downward drag once chute is open
   const CHUTE_TERMINAL_VY = -2.2;   // max fall speed once chute is fully open
 
@@ -1705,8 +1705,8 @@
       }
 
     } else if (rogueState === 'falling'){
-      // netted: tumbling out of control briefly, then the parachute pops and
-      // it drifts down slowly under canopy
+      // netted: tumbles briefly, then the parachute pops and it settles
+      // upright, drifting slowly down under canopy
       rogueChuteTimer += dt;
       if (!rogueChuteOpen && rogueChuteTimer >= CHUTE_DEPLOY_DELAY){
         deployChute(rogueGroup);
@@ -1719,8 +1719,10 @@
         rogueVel.y = Math.max(rogueVel.y, CHUTE_TERMINAL_VY);
         rogueVel.x *= Math.max(0, 1 - 2 * dt);
         rogueVel.z *= Math.max(0, 1 - 2 * dt);
-        rogueGroup.rotation.x += 1.2 * dt; // gentle sway, not a tumble, once under canopy
-        rogueGroup.rotation.z += 1.6 * dt;
+        // settle out of the netted tumble and hold upright — the chute
+        // keeps the whole rig hanging straight down, no more spinning
+        rogueGroup.rotation.x = THREE.MathUtils.lerp(rogueGroup.rotation.x, 0, Math.min(1, 6 * dt));
+        rogueGroup.rotation.z = THREE.MathUtils.lerp(rogueGroup.rotation.z, 0, Math.min(1, 6 * dt));
       } else {
         rogueGroup.rotation.x += 7 * dt;
         rogueGroup.rotation.z += 9 * dt;
@@ -1824,11 +1826,16 @@
   // on again before the next one launches.
   function fireNet(){
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
+    // loft the launch slightly upward off the drone's forward vector so the
+    // net fires from higher up and arcs over a bit before dropping — easier
+    // to land on rogues that are above eye level
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
+    const launchDir = forward.clone().addScaledVector(up, 0.22).normalize();
     const mesh = createNetProjectileMesh();
-    mesh.position.copy(pos).addScaledVector(forward, 0.6);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
+    mesh.position.copy(pos).addScaledVector(forward, 0.6).addScaledVector(up, 0.9);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), launchDir);
     scene.add(mesh);
-    netProjectiles.push({ mesh, vel: forward.clone().multiplyScalar(NET_SPEED), age: 0 });
+    netProjectiles.push({ mesh, vel: launchDir.clone().multiplyScalar(NET_SPEED), age: 0 });
   }
 
   function updateNetProjectiles(dt){
@@ -1874,7 +1881,7 @@
     rogueChuteTimer = 0;
     rogueChuteOpen = false;
     rogueVel.copy(impactVel).multiplyScalar(0.3);
-    rogueVel.y = Math.max(rogueVel.y, 1.5); // small pop from the impact before gravity wins
+    rogueVel.y = Math.max(rogueVel.y, 4.5); // bigger pop from the impact — higher apogee before gravity/chute take over
 
     if (rogueGroup && !rogueGroup.userData.wrap){
       const wrap = new THREE.Mesh(
