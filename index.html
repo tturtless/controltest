@@ -1826,13 +1826,12 @@
   // on again before the next one launches.
   function fireNet(){
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
-    // loft the launch slightly upward off the drone's forward vector so the
-    // net fires from higher up and arcs over a bit before dropping — easier
-    // to land on rogues that are above eye level
+    // slight upward loft off the forward vector so the net arcs higher
+    // without adding extra forward launch speed/distance
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
     const launchDir = forward.clone().addScaledVector(up, 0.22).normalize();
     const mesh = createNetProjectileMesh();
-    mesh.position.copy(pos).addScaledVector(forward, 0.6).addScaledVector(up, 0.9);
+    mesh.position.copy(pos).addScaledVector(forward, 0.6);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), launchDir);
     scene.add(mesh);
     netProjectiles.push({ mesh, vel: launchDir.clone().multiplyScalar(NET_SPEED), age: 0 });
@@ -1881,7 +1880,9 @@
     rogueChuteTimer = 0;
     rogueChuteOpen = false;
     rogueVel.copy(impactVel).multiplyScalar(0.3);
-    rogueVel.y = Math.max(rogueVel.y, 4.5); // bigger pop from the impact — higher apogee before gravity/chute take over
+    rogueVel.x *= 0.25; // keep horizontal carry-over small so it doesn't rocket off sideways
+    rogueVel.z *= 0.25;
+    rogueVel.y = Math.max(rogueVel.y, 4.5); // strong vertical pop for a visible apogee before the chute settles it
 
     if (rogueGroup && !rogueGroup.userData.wrap){
       const wrap = new THREE.Mesh(
