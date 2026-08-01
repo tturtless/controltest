@@ -243,7 +243,7 @@
       <button class="cal-btn mono" id="flyBtnAir65" data-drone="air65">▶ BetaFPV Air65 <span style="opacity:.55">7000KV</span></button>
       <button class="cal-btn mono" id="flyBtnViper" data-drone="viper">▶ Viper Racer5 <span style="opacity:.55">5000KV</span></button>
       <button class="cal-btn mono" id="flyBtnTitan" data-drone="titan">▶ Titan Cinewhoop <span style="opacity:.55">3000KV</span></button>
-      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#4dd8ff; color:#4dd8ff;" title="Chase down a rogue drone and fire nets at it (axis 6 / key N, unlimited ammo). A hit drops it to the ground, where it despawns after 10s.">🕸 NET CHASE <span style="opacity:.55">7000KV</span></button>
+      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#4dd8ff; color:#4dd8ff;" title="Chase down a rogue drone and fire nets at it: flip the switch on axis 6 (or key N) to launch one wide-opening net, flip off then on again to reload. A hit drops the drone to the ground, where it despawns after 10s.">🕸 NET CHASE <span style="opacity:.55">7000KV</span></button>
     </div>
     <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
   </div>
@@ -307,7 +307,7 @@
   </div>
   <div id="flyMsg" style="position:absolute; bottom:60px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#ffb020; font-size:14px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;"></div>
   <div style="position:absolute; bottom:16px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#6f8f88; font-size:11.5px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;">
-    Gamepad: Roll/Pitch/Yaw/Throttle from your calibration, ignition = axis 7 &nbsp;|&nbsp; Keyboard fallback: W/S pitch, A/D roll, Q/E yaw, R/F throttle, SPACE reset &nbsp;|&nbsp; NET CHASE only: fire net = axis 6 / key N (unlimited nets, rate-limited) &nbsp;|&nbsp; ESC to exit
+    Gamepad: Roll/Pitch/Yaw/Throttle from your calibration, ignition = axis 7 &nbsp;|&nbsp; Keyboard fallback: W/S pitch, A/D roll, Q/E yaw, R/F throttle, SPACE reset &nbsp;|&nbsp; NET CHASE only: fire net = axis 6 / key N, one net per off→on flip &nbsp;|&nbsp; ESC to exit
   </div>
 
   <!-- crosshair -->
@@ -687,12 +687,14 @@
   // cooldown, not by ammo — nets are unlimited for arcade play.
   let netGameActive = false;
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
-  let netCooldown = 0;
+  let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
   const NET_SPEED = 42;             // m/s, muzzle velocity of a fired net
   const NET_GRAVITY = -5;           // gentle droop so the net arcs a little
   const NET_LIFETIME = 3.2;         // seconds before an unfired-hit net despawns
-  const NET_HIT_RADIUS = 1.6;       // meters, physical net-vs-rogue-drone hit test
-  const NET_FIRE_COOLDOWN = 0.6;    // seconds between shots while the switch is held
+  const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
+  const NET_MAX_SCALE = 2.1;        // fully blossomed net radius (meters) — wide coverage
+  const NET_OPEN_TIME = 0.28;       // seconds to go from bundled to fully open
+  const ROGUE_HIT_PAD = 0.6;        // extra forgiveness added to the net's open radius for the hit test
   let netProjectiles = [];          // in-flight nets: {mesh, vel, age}
 
   let rogueGroup = null;
@@ -1688,27 +1690,57 @@
     }
   }
 
+  // A woven-look net disc: radial "spokes" + concentric rings + weighted
+  // corners, built flat in local XZ... actually local XY (z=0), then oriented
+  // to face direction of travel each frame. Starts bundled small at the
+  // muzzle and blossoms open as it flies, like a real net-gun capture round.
   function createNetProjectileMesh(){
     const grp = new THREE.Group();
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.4, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0x4dd8ff, wireframe: true, transparent: true, opacity: 0.9 })
-    );
-    grp.add(mesh);
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.32, 0.02, 6, 16),
-      new THREE.MeshBasicMaterial({ color: 0x4dd8ff })
-    );
-    grp.add(rim);
+    const spinner = new THREE.Group(); // spins independently of the aim orientation
+    const netMat = new THREE.LineBasicMaterial({ color: 0x4dd8ff, transparent: true, opacity: 0.9 });
+
+    const SPOKES = 8;
+    for (let i = 0; i < SPOKES; i++){
+      const ang = (i / SPOKES) * Math.PI * 2;
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(Math.cos(ang), Math.sin(ang), 0)
+      ]);
+      spinner.add(new THREE.Line(geo, netMat));
+    }
+    const RINGS = 3;
+    for (let s = 1; s <= RINGS; s++){
+      const rr = s / RINGS;
+      const pts = [];
+      for (let i = 0; i <= 24; i++){
+        const ang = (i / 24) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(ang) * rr, Math.sin(ang) * rr, 0));
+      }
+      spinner.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), netMat));
+    }
+    const weightMat = new THREE.MeshBasicMaterial({ color: 0x2a6f8a });
+    for (let i = 0; i < 4; i++){
+      const ang = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), weightMat);
+      w.position.set(Math.cos(ang), Math.sin(ang), 0);
+      spinner.add(w);
+    }
+
+    grp.add(spinner);
+    grp.userData.spinner = spinner;
+    grp.scale.setScalar(NET_MIN_SCALE); // launched bundled/closed
     return grp;
   }
 
-  // Fires a net from the drone's nose. Ammo is unlimited (arcade rules) — the
-  // only limiter is NET_FIRE_COOLDOWN, handled by the caller in animate().
+  // Fires a single net from the drone's nose. Ammo is unlimited (arcade
+  // rules) — the caller in animate() only lets this fire on the off→on edge
+  // of the switch, so one flip = one net, and it must be flipped off and back
+  // on again before the next one launches.
   function fireNet(){
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
     const mesh = createNetProjectileMesh();
     mesh.position.copy(pos).addScaledVector(forward, 0.6);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
     scene.add(mesh);
     netProjectiles.push({ mesh, vel: forward.clone().multiplyScalar(NET_SPEED), age: 0 });
   }
@@ -1719,12 +1751,24 @@
       np.age += dt;
       np.vel.y += NET_GRAVITY * dt;
       np.mesh.position.addScaledVector(np.vel, dt);
-      np.mesh.rotation.x += 16 * dt;
-      np.mesh.rotation.y += 12 * dt;
 
+      // keep the open net's face pointing the way it's actually traveling
+      if (np.vel.lengthSq() > 0.0001){
+        np.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), np.vel.clone().normalize());
+      }
+      // blossom open over NET_OPEN_TIME, then hold at full spread
+      const openT = Math.min(1, np.age / NET_OPEN_TIME);
+      const scale = NET_MIN_SCALE + (NET_MAX_SCALE - NET_MIN_SCALE) * openT;
+      np.mesh.scale.setScalar(scale);
+      if (np.mesh.userData.spinner) np.mesh.userData.spinner.rotation.z += 8 * dt;
+
+      // hit radius grows with how open the net currently is — a fresh-fired,
+      // still-bundled net is a tighter throw; a fully blossomed one gives
+      // generous coverage to actually tangle the rogue drone
       let spent = false;
       if (rogueAlive && rogueGroup && rogueState === 'flying'){
-        if (np.mesh.position.distanceTo(rogueGroup.position) < NET_HIT_RADIUS){
+        const hitRadius = scale + ROGUE_HIT_PAD;
+        if (np.mesh.position.distanceTo(rogueGroup.position) < hitRadius){
           captureRogue(np.vel);
           spent = true;
         }
@@ -1862,14 +1906,20 @@
     flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD ${vel.length().toFixed(1)}m/s`;
 
     if (netGameActive){
-      netCooldown = Math.max(0, netCooldown - dt);
-      if (netDeployed && netCooldown <= 0){
+      // one net per off→on flip of the switch — must be disabled and
+      // re-enabled to launch another (ammo itself stays unlimited)
+      if (netDeployed && !netSwitchPrev){
         fireNet();
-        netCooldown = NET_FIRE_COOLDOWN;
       }
+      netSwitchPrev = netDeployed;
       if (flyNetLabel){
-        flyNetLabel.textContent = netCooldown > 0 ? 'NET: RELOADING' : 'NET: READY';
-        flyNetLabel.style.color = netCooldown > 0 ? '#6f8f88' : '#4dd8ff';
+        if (netDeployed){
+          flyNetLabel.textContent = 'NET: ARMED (flip off to reload)';
+          flyNetLabel.style.color = '#ffb020';
+        } else {
+          flyNetLabel.textContent = 'NET: READY';
+          flyNetLabel.style.color = '#4dd8ff';
+        }
       }
       updateRogueDrone(dt);
       updateNetProjectiles(dt);
@@ -1882,7 +1932,7 @@
   function clearNetGameState(){
     netGameActive = false;
     netDeployed = false;
-    netCooldown = 0;
+    netSwitchPrev = false;
     rogueAlive = false;
     rogueState = 'flying';
     if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
@@ -1920,13 +1970,13 @@
 
     containedCount = 0;
     netGameActive = true;
-    netCooldown = 0;
+    netSwitchPrev = false;
     if (flyNetLabel) { flyNetLabel.style.display = 'block'; flyNetLabel.textContent = 'NET: READY'; flyNetLabel.style.color = '#4dd8ff'; }
     if (flyGameOsd) { flyGameOsd.style.display = 'block'; flyGameOsd.textContent = 'ROGUE DRONES CONTAINED: 0'; }
 
     spawnRogue();
 
-    flyMsg.textContent = 'Chase the rogue drone and hold the net switch (axis 6 / key N) to fire nets — unlimited ammo, netted drones drop and despawn.';
+    flyMsg.textContent = 'Chase the rogue drone. Flip the net switch (axis 6 / key N) on to fire one net — flip it off then on again to reload the next.';
     setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 5000);
   }
 
