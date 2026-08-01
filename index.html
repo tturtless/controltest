@@ -243,7 +243,7 @@
       <button class="cal-btn mono" id="flyBtnAir65" data-drone="air65">▶ BetaFPV Air65 <span style="opacity:.55">7000KV</span></button>
       <button class="cal-btn mono" id="flyBtnViper" data-drone="viper">▶ Viper Racer5 <span style="opacity:.55">5000KV</span></button>
       <button class="cal-btn mono" id="flyBtnTitan" data-drone="titan">▶ Titan Cinewhoop <span style="opacity:.55">3000KV</span></button>
-      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#ffb020; color:#ffb020;">▶ NET DEFENDER <span style="opacity:.65">7000KV // MINIGAME</span></button>
+      <button class="cal-btn mono" id="flyBtnNetGame" style="border-color:#4dd8ff; color:#4dd8ff;" title="Chase and contain a rogue drone. Same flight controls as the sims above — hold the net-deploy switch (axis 6 / key N) close to the rogue drone to capture it.">🕸 NET CHASE <span style="opacity:.55">7000KV</span></button>
     </div>
     <div id="status" class="no mono">NO CONTROLLER DETECTED</div>
   </div>
@@ -296,18 +296,18 @@
   <div id="flyIgnitionLabel" style="position:absolute; top:36px; left:16px; font-family:'Share Tech Mono',monospace; color:#ff4d5e; font-size:12px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
     IGNITION OFF
   </div>
-  <div id="flyNetLabel" style="display:none; position:absolute; top:56px; left:16px; font-family:'Share Tech Mono',monospace; color:#ffb020; font-size:12px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
+  <div id="flyNetLabel" style="display:none; position:absolute; top:58px; left:16px; font-family:'Share Tech Mono',monospace; color:#6f8f88; font-size:12px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
     NET STOWED
   </div>
-  <div id="flyNetGameHud" style="display:none; position:absolute; top:14px; left:50%; transform:translateX(-50%); text-align:center; font-family:'Share Tech Mono',monospace; color:#ffb020; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
-    ROGUE DRONE CONTAINMENT<br><span id="flyNetProgress" style="font-size:20px;">0%</span>
+  <div id="flyGameOsd" style="display:none; position:absolute; top:80px; left:16px; font-family:'Share Tech Mono',monospace; color:#4dd8ff; font-size:12px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none;">
+    ROGUE DRONES CONTAINED: 0
   </div>
   <div id="flyOsd" style="position:absolute; top:14px; right:16px; text-align:right; font-family:'Share Tech Mono',monospace; color:#39ff9d; font-size:13px; text-shadow:0 0 6px rgba(0,0,0,0.9); letter-spacing:1px; pointer-events:none; line-height:1.6;">
     THR 0%<br>ALT 0.0m<br>SPD 0.0m/s
   </div>
   <div id="flyMsg" style="position:absolute; bottom:60px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#ffb020; font-size:14px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;"></div>
-  <div id="flyHelpText" style="position:absolute; bottom:16px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#6f8f88; font-size:11.5px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;">
-    Gamepad: Roll/Pitch/Yaw/Throttle from your calibration &nbsp;|&nbsp; Keyboard fallback: W/S pitch, A/D roll, Q/E yaw, R/F throttle, SPACE reset &nbsp;|&nbsp; ESC to exit
+  <div style="position:absolute; bottom:16px; left:50%; transform:translateX(-50%); font-family:'Share Tech Mono',monospace; color:#6f8f88; font-size:11.5px; text-shadow:0 0 6px rgba(0,0,0,0.9); pointer-events:none; text-align:center;">
+    Gamepad: Roll/Pitch/Yaw/Throttle from your calibration, ignition = axis 7 &nbsp;|&nbsp; Keyboard fallback: W/S pitch, A/D roll, Q/E yaw, R/F throttle, SPACE reset &nbsp;|&nbsp; NET CHASE only: net deploy = axis 6 / key N &nbsp;|&nbsp; ESC to exit
   </div>
 
   <!-- crosshair -->
@@ -662,6 +662,9 @@
   const flyOsd = document.getElementById('flyOsd');
   const flyMsg = document.getElementById('flyMsg');
   const flyDroneLabel = document.getElementById('flyDroneLabel');
+  const flyNetLabel = document.getElementById('flyNetLabel');
+  const flyGameOsd = document.getElementById('flyGameOsd');
+  const flyBtnNetGame = document.getElementById('flyBtnNetGame');
   const camAngleSlider = document.getElementById('camAngleSlider');
   const camAngleVal = document.getElementById('camAngleVal');
 
@@ -677,6 +680,23 @@
   let obstacles = [];
   let flying = false;
   let animId = null;
+
+  // ---- NET CHASE minigame state ----
+  // Contain a rogue drone using a deployable net. Net deploy uses the exact
+  // same "switch axis reads ~1 when on" mechanic as ignition (axis 7), but
+  // reads axis 6 instead.
+  let netGameActive = false;
+  let netDeployed = false;
+  let netMesh = null;
+  let rogueGroup = null;
+  let rogueAlive = false;
+  let rogueTarget = new THREE.Vector3();
+  const ROGUE_SPEED = 6.5;
+  const ROGUE_CENTER = new THREE.Vector3(0, 14, 0);
+  const ROGUE_RADIUS = 45;
+  const CAPTURE_RANGE = 4.5;    // meters
+  const CAPTURE_CONE = 0.2;     // min forward-dot to count as "in front of the net"
+  let containedCount = 0;
 
   // camera mount angle (degrees tilted "up" from the frame's flat plane, 0-45)
   let camAngleDeg = 20;
@@ -708,6 +728,7 @@
     scene.fog = new THREE.Fog(0x8fd0ff, 40, 340);
 
     camera = new THREE.PerspectiveCamera(95, flyCanvas.clientWidth / flyCanvas.clientHeight, 0.05, 650);
+    scene.add(camera); // lets objects parented to the camera (e.g. the deployable net) render
 
     renderer = new THREE.WebGLRenderer({ canvas: flyCanvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1442,105 +1463,6 @@
     scene.add(drone);
   }
 
-  // ---- Net Defender: the rogue drone target itself. Small visible quad
-  // (unlike the player's invisible FPV body) with blinking red warning
-  // lights, so it reads clearly as "the thing you're chasing." ----
-  function buildRogueDrone(){
-    const grp = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x661111, emissive: 0x330000, emissiveIntensity: 0.6 });
-    const armMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    const lightMat = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xff2020, emissiveIntensity: 2 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.6), bodyMat);
-    grp.add(body);
-    const armPositions = [[0.4,0,0.4],[-0.4,0,0.4],[0.4,0,-0.4],[-0.4,0,-0.4]];
-    const rogueProps = [];
-    armPositions.forEach(([x,,z]) => {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.05,0.08), armMat);
-      arm.position.set(x, 0, z);
-      grp.add(arm);
-      const prop = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.02,10), armMat);
-      prop.position.set(x, 0.09, z);
-      grp.add(prop);
-      rogueProps.push(prop);
-    });
-    const light = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), lightMat);
-    light.position.set(0, 0.15, -0.3);
-    grp.add(light);
-    grp.userData.blinkLight = light;
-    grp.userData.props = rogueProps;
-    scene.add(grp);
-    return grp;
-  }
-
-  // ---- Net Defender: simple wandering/evasive AI. The rogue drone drifts
-  // to random waypoints inside the play volume, and actively juke-flees if
-  // the player's net is deployed and close by — makes containment feel
-  // like an active chase rather than flying up to a stationary target. ----
-  let rogueWaypoint = new THREE.Vector3();
-  function pickNewRogueWaypoint(){
-    rogueWaypoint.set(
-      (Math.random()-0.5) * 70,
-      6 + Math.random() * 22,
-      (Math.random()-0.5) * 70 + 10
-    );
-  }
-  function updateRogueDrone(dt){
-    if (!rogueDrone) return;
-    if (roguePos.distanceTo(rogueWaypoint) < 3) pickNewRogueWaypoint();
-
-    // base steering toward the current waypoint
-    const toWp = rogueWaypoint.clone().sub(roguePos);
-    const wpDist = toWp.length();
-    if (wpDist > 0.001) toWp.normalize();
-
-    // if the player's net is out and close, panic-flee directly away from
-    // the player instead of following the waypoint — this is the "rogue"
-    // behavior that makes it a real chase once the net is deployed
-    const toPlayer = roguePos.clone().sub(pos);
-    const playerDist = toPlayer.length();
-    let steer = toWp;
-    if (netDeployed && playerDist < 14){
-      steer = toPlayer.normalize().multiplyScalar(1.6).add(toWp.multiplyScalar(0.4)).normalize();
-    }
-
-    const ROGUE_SPEED = 9.5; // base cruising speed, picks up under panic
-    const speed = (netDeployed && playerDist < 14) ? ROGUE_SPEED * 1.6 : ROGUE_SPEED;
-    rogueVel.lerp(steer.multiplyScalar(speed), Math.min(1, dt * 1.8));
-    roguePos.addScaledVector(rogueVel, dt);
-
-    // gentle world-bounds clamp so it never wanders out past the map
-    roguePos.x = THREE.MathUtils.clamp(roguePos.x, -140, 140);
-    roguePos.z = THREE.MathUtils.clamp(roguePos.z, -140, 140);
-    roguePos.y = THREE.MathUtils.clamp(roguePos.y, 2, 45);
-
-    rogueDrone.position.copy(roguePos);
-    // face direction of travel
-    if (rogueVel.length() > 0.1){
-      const lookTarget = roguePos.clone().add(rogueVel);
-      rogueDrone.lookAt(lookTarget);
-    }
-    rogueDrone.userData.props.forEach(p => p.rotation.y += 60 * dt);
-    // blink the warning light
-    const blink = (Math.sin(performance.now() * 0.012) + 1) / 2;
-    rogueDrone.userData.blinkLight.material.emissiveIntensity = 1 + blink * 2;
-
-    // ---- containment check: net must be deployed AND the player must be
-    // close to the rogue drone, held for a sustained period (progress bar)
-    // rather than an instant win, so it feels like actually netting it
-    // rather than just tagging it once. ----
-    if (netDeployed && playerDist < 3.2){
-      containment = Math.min(1, containment + dt * 0.4);
-    } else {
-      containment = Math.max(0, containment - dt * 0.5);
-    }
-    if (flyNetProgress) flyNetProgress.textContent = Math.round(containment*100) + '%';
-    if (containment >= 1 && !netGameWon){
-      netGameWon = true;
-      flyMsg.textContent = 'ROGUE DRONE CONTAINED — NICE NET!';
-      setTimeout(() => { if (netGameActive) flyMsg.textContent=''; }, 3000);
-    }
-  }
-
   function resizeRenderer(){
     const w = flyOverlay.clientWidth, h = flyOverlay.clientHeight;
     renderer.setSize(w, h, false);
@@ -1587,10 +1509,6 @@
   }
 
   const flyIgnitionLabel = document.getElementById('flyIgnitionLabel');
-  const flyNetLabel = document.getElementById('flyNetLabel');
-  const flyNetGameHud = document.getElementById('flyNetGameHud');
-  const flyNetProgress = document.getElementById('flyNetProgress');
-  const flyHelpText = document.getElementById('flyHelpText');
 
   function getInputs(){
     // reuse the page's gamepad config (cfg) + active gamepad if present
@@ -1607,33 +1525,28 @@
       }
     } catch(e){}
 
-    // --- Net Defender minigame: check AXIS 6 for net deploy, same switch
-    // mechanic as ignition's axis 7 (goes -1 → +1 when the switch is
-    // flipped on), but reading axis index 6 and driving net deployment
-    // instead of ignition. ---
-    if (netGameActive){
-      try {
-        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-        let padSeen = false;
-        for (const pd of pads) {
-          if (pd && pd.axes && pd.axes.length > 6) {
-            netDeployed = pd.axes[6] > 0.5;
-            padSeen = true;
-            break;
-          }
-        }
-        if (!padSeen) netDeployed = !!keys['Space']; // keyboard fallback: hold SPACE to deploy net
-      } catch(e){ netDeployed = !!keys['Space']; }
-      if (flyNetLabel){
-        flyNetLabel.textContent = netDeployed ? 'NET DEPLOYED' : 'NET STOWED';
-        flyNetLabel.style.color = netDeployed ? '#39ff9d' : '#ffb020';
-      }
-    }
-
     // update ignition OSD label
     if (flyIgnitionLabel) {
       flyIgnitionLabel.textContent = ignitionOn ? 'IGNITION ON' : 'IGNITION OFF';
       flyIgnitionLabel.style.color = ignitionOn ? '#39ff9d' : '#ff4d5e';
+    }
+
+    // --- check AXIS 6 for net deploy (same mechanic as ignition, one axis over:
+    // the switch reads ~1 when it's flipped on) ---
+    try {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      for (const pd of pads) {
+        if (pd && pd.axes && pd.axes.length > 6) {
+          netDeployed = pd.axes[6] > 0.5;
+          break;
+        }
+      }
+    } catch(e){}
+    if (keys['KeyN']) netDeployed = true; // keyboard fallback when no switch is bound to axis 6
+
+    if (flyNetLabel && netGameActive) {
+      flyNetLabel.textContent = netDeployed ? 'NET DEPLOYED' : 'NET STOWED';
+      flyNetLabel.style.color = netDeployed ? '#4dd8ff' : '#6f8f88';
     }
 
     // no ignition = no power, drone stays still
@@ -1673,14 +1586,108 @@
   let kbThrottle = 0;
   let ignitionOn = false;
 
-  // ---- Net Defender minigame state ----
-  let netGameActive = false;   // true only while the minigame overlay is running
-  let netDeployed = false;     // driven by axis 6 (or SPACE fallback) while netGameActive
-  let rogueDrone = null;       // THREE.Group for the visible rogue-drone target
-  let roguePos = new THREE.Vector3();
-  let rogueVel = new THREE.Vector3();
-  let containment = 0;         // 0..1 progress toward containing the rogue drone
-  let netGameWon = false;
+  // ---------- NET CHASE minigame helpers ----------
+
+  function pickRogueTarget(){
+    const ang = Math.random() * Math.PI * 2;
+    const r = Math.random() * ROGUE_RADIUS;
+    rogueTarget.set(
+      ROGUE_CENTER.x + Math.cos(ang) * r,
+      6 + Math.random() * 18,
+      ROGUE_CENTER.z + Math.sin(ang) * r
+    );
+  }
+
+  function createRogueDrone(){
+    const grp = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff2d3d, emissive: 0x661015, emissiveIntensity: 0.7 });
+    const body = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), bodyMat);
+    grp.add(body);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.95, 0.05, 8, 24),
+      new THREE.MeshBasicMaterial({ color: 0xff4d5e, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = Math.PI / 2;
+    grp.add(ring);
+    grp.userData.ring = ring;
+    const beacon = new THREE.PointLight(0xff2d3d, 1.4, 16);
+    grp.add(beacon);
+    grp.userData.beacon = beacon;
+    grp.userData.blink = 0;
+    scene.add(grp);
+    return grp;
+  }
+
+  function spawnRogue(){
+    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    rogueGroup = createRogueDrone();
+    pickRogueTarget();
+    rogueGroup.position.copy(rogueTarget);
+    pickRogueTarget();
+    rogueAlive = true;
+  }
+
+  function updateRogueDrone(dt){
+    if (!rogueAlive || !rogueGroup) return;
+    const toTarget = rogueTarget.clone().sub(rogueGroup.position);
+    const d = toTarget.length();
+    if (d < 2.5) {
+      pickRogueTarget();
+    } else {
+      toTarget.normalize();
+      rogueGroup.position.addScaledVector(toTarget, ROGUE_SPEED * dt);
+    }
+    rogueGroup.rotation.y += 2.6 * dt;
+    if (rogueGroup.userData.ring) rogueGroup.userData.ring.rotation.z += 3.2 * dt;
+    // frantic blinking beacon, the "rogue" tell
+    rogueGroup.userData.blink += dt;
+    if (rogueGroup.userData.beacon) {
+      rogueGroup.userData.beacon.intensity = 0.8 + Math.abs(Math.sin(rogueGroup.userData.blink * 9)) * 1.4;
+    }
+  }
+
+  function createNetMesh(){
+    const grp = new THREE.Group();
+    const netMat = new THREE.MeshBasicMaterial({ color: 0x4dd8ff, wireframe: true, transparent: true, opacity: 0.85 });
+    const netGeo = new THREE.SphereGeometry(1.2, 10, 8, 0, Math.PI * 2, 0, Math.PI / 1.5);
+    const mesh = new THREE.Mesh(netGeo, netMat);
+    mesh.rotation.x = Math.PI; // open end faces forward (-Z, camera look direction)
+    grp.add(mesh);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.04, 6, 20),
+      new THREE.MeshBasicMaterial({ color: 0x4dd8ff })
+    );
+    grp.add(rim);
+    grp.position.set(0, 0, -1.7); // out in front of the craft
+    grp.visible = false;
+    camera.add(grp);
+    return grp;
+  }
+
+  function checkContainment(){
+    if (!netGameActive || !netDeployed || !rogueAlive || !rogueGroup) return;
+    const toRogue = rogueGroup.position.clone().sub(pos);
+    const dist = toRogue.length();
+    if (dist > CAPTURE_RANGE) return;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
+    const dot = dist > 0.001 ? toRogue.clone().normalize().dot(forward) : 1;
+    if (dot > CAPTURE_CONE) containRogue();
+  }
+
+  function containRogue(){
+    rogueAlive = false;
+    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    containedCount++;
+    if (flyGameOsd) flyGameOsd.textContent = `ROGUE DRONES CONTAINED: ${containedCount}`;
+    flyMsg.textContent = `ROGUE DRONE CONTAINED! (${containedCount})`;
+    setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 1600);
+    setTimeout(() => {
+      if (!netGameActive) return;
+      spawnRogue();
+      flyMsg.textContent = 'NEW ROGUE DRONE INBOUND';
+      setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 1500);
+    }, 1800);
+  }
 
   let lastTime = null;
   function animate(time){
@@ -1783,6 +1790,12 @@
 
     flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD ${vel.length().toFixed(1)}m/s`;
 
+    if (netGameActive){
+      updateRogueDrone(dt);
+      if (netMesh) netMesh.visible = netDeployed;
+      checkContainment();
+    }
+
     renderer.render(scene, camera);
     animId = requestAnimationFrame(animate);
   }
@@ -1800,19 +1813,58 @@
     kbThrottle = 0;
     ignitionOn = false;
     if (flyIgnitionLabel) { flyIgnitionLabel.textContent = 'IGNITION OFF'; flyIgnitionLabel.style.color = '#ff4d5e'; }
+
+    // leaving/skipping the minigame — clear any rogue-drone game state
+    netGameActive = false;
+    netDeployed = false;
+    rogueAlive = false;
+    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    if (netMesh) netMesh.visible = false;
+    if (flyNetLabel) flyNetLabel.style.display = 'none';
+    if (flyGameOsd) flyGameOsd.style.display = 'none';
+
     flying = true;
     lastTime = null;
     animId = requestAnimationFrame(animate);
   }
+
+  function enterNetGame(){
+    enterFly('air65'); // NET CHASE always flies the 7000KV Air65
+    flyDroneLabel.textContent = 'ROGUE DRONE CONTAINMENT // AIR65 7000KV';
+
+    if (!netMesh) netMesh = createNetMesh();
+    netMesh.visible = false;
+
+    containedCount = 0;
+    netGameActive = true;
+    if (flyNetLabel) { flyNetLabel.style.display = 'block'; flyNetLabel.textContent = 'NET STOWED'; flyNetLabel.style.color = '#6f8f88'; }
+    if (flyGameOsd) { flyGameOsd.style.display = 'block'; flyGameOsd.textContent = 'ROGUE DRONES CONTAINED: 0'; }
+
+    spawnRogue();
+
+    flyMsg.textContent = 'Chase the rogue drone, then hold the net switch (axis 6 / key N) close in front of it to contain it.';
+    setTimeout(() => { if (netGameActive) flyMsg.textContent = ''; }, 4500);
+  }
+
   function exitFly(){
     flying = false;
     if (animId) cancelAnimationFrame(animId);
     flyOverlay.style.display = 'none';
+
+    // clean up rogue-drone minigame state so it doesn't leak into normal sim flights
+    netGameActive = false;
+    netDeployed = false;
+    rogueAlive = false;
+    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    if (netMesh) netMesh.visible = false;
+    if (flyNetLabel) flyNetLabel.style.display = 'none';
+    if (flyGameOsd) flyGameOsd.style.display = 'none';
   }
 
   document.querySelectorAll('[data-drone]').forEach(btn => {
     btn.addEventListener('click', () => enterFly(btn.getAttribute('data-drone')));
   });
+  flyBtnNetGame.addEventListener('click', enterNetGame);
   flyExitBtn.addEventListener('click', exitFly);
 })();
 </script>
