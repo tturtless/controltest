@@ -1832,7 +1832,7 @@
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
     const launchDir = forward.clone().addScaledVector(up, 1.25).normalize();
     const mesh = createNetProjectileMesh();
-    const launchPos = pos.clone().addScaledVector(forward, 0.6).addScaledVector(up, 0.25);
+    const launchPos = pos.clone().addScaledVector(forward, 0.6).addScaledVector(up, 0.12);
     mesh.position.copy(launchPos);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), launchDir);
     scene.add(mesh);
