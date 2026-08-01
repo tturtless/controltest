@@ -689,7 +689,7 @@
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
   let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
   const NET_SPEED = 79.2;           // m/s, muzzle velocity — cut 20% from previous
-  const NET_GRAVITY = -12;          // stronger droop so the net comes back down within a short range naturally
+  const NET_GRAVITY = -7;           // moderate droop — steep launch angle now handles the short range, gravity just governs the arc
   // NET_LIFETIME removed — an unfired net now stays live until it hits the ground
   const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
   const NET_MAX_SCALE = 3.4;        // fully blossomed net radius (meters) — extra-wide coverage
@@ -1826,10 +1826,11 @@
   // on again before the next one launches.
   function fireNet(){
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
-    // slight upward loft off the forward vector so the net arcs higher
-    // without adding extra forward launch speed/distance
+    // steep loft off the forward vector — same muzzle speed as before, but
+    // most of it now goes into height instead of distance: cuts total
+    // horizontal range by ~75% while sending the net much higher before it falls
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
-    const launchDir = forward.clone().addScaledVector(up, 0.22).normalize();
+    const launchDir = forward.clone().addScaledVector(up, 1.7).normalize();
     const mesh = createNetProjectileMesh();
     const launchPos = pos.clone().addScaledVector(forward, 0.6);
     mesh.position.copy(launchPos);
