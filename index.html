@@ -698,9 +698,9 @@
   function initScene(){
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x8fd0ff);
-    scene.fog = new THREE.Fog(0x8fd0ff, 40, 260);
+    scene.fog = new THREE.Fog(0x8fd0ff, 40, 340);
 
-    camera = new THREE.PerspectiveCamera(95, flyCanvas.clientWidth / flyCanvas.clientHeight, 0.05, 500);
+    camera = new THREE.PerspectiveCamera(95, flyCanvas.clientWidth / flyCanvas.clientHeight, 0.05, 650);
 
     renderer = new THREE.WebGLRenderer({ canvas: flyCanvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -714,14 +714,14 @@
     scene.add(sun);
 
     // ground
-    const groundGeo = new THREE.PlaneGeometry(600, 600, 1, 1);
+    const groundGeo = new THREE.PlaneGeometry(900, 900, 1, 1);
     const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d7a3d });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
     // grid helper for spatial reference
-    const grid = new THREE.GridHelper(600, 60, 0x225522, 0x2a662a);
+    const grid = new THREE.GridHelper(900, 90, 0x225522, 0x2a662a);
     grid.position.y = 0.01;
     scene.add(grid);
 
@@ -1190,6 +1190,165 @@
     buildCheckerTripodPole(150, 0, 90, 9, 0.3);
     buildCheckerPentagon(-70, 5, 60, 5, 0.38);
     buildCheckerPentagon(95, 5, -10, 4.5, 0.38);
+
+    // ================================================================
+    // EXPANSION LAYER — bigger, smoother, more complex structures placed
+    // further out in the newly widened map. Uses higher segment counts on
+    // every curved shape (rings, tubes, domes) so silhouettes read as
+    // smooth curves rather than faceted polygons, for a more cinematic,
+    // polished look while still colliding with the same simple box/
+    // cylinder primitives as everything else.
+    // ================================================================
+    const smoothMatA = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.15 });
+    const smoothMatB = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.3, metalness: 0.15 });
+    const smoothMatC = new THREE.MeshStandardMaterial({ color: 0x2fa8ff, roughness: 0.35, metalness: 0.2 });
+    const smoothMatD = new THREE.MeshStandardMaterial({ color: 0xff5f7a, roughness: 0.35, metalness: 0.2 });
+
+    // ---- smooth tube helper: like checkerTube but with high segment count
+    // per band and smoother, longer bands for a sleeker look (used for the
+    // big new showpiece structures rather than the short-band checkered
+    // hurdle look) ----
+    function smoothTube(p0, p1, radius, mat, segsOverride){
+      const dx = p1[0]-p0[0], dy = p1[1]-p0[1], dz = p1[2]-p0[2];
+      const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if (len < 0.01) return;
+      const dir = new THREE.Vector3(dx,dy,dz).normalize();
+      const up = new THREE.Vector3(0,1,0);
+      const geo = new THREE.CylinderGeometry(radius, radius, len, segsOverride || 16);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(p0[0]+dx/2, p0[1]+dy/2, p0[2]+dz/2);
+      mesh.quaternion.setFromUnitVectors(up, dir);
+      scene.add(mesh);
+      obstacles.push({ mesh, type: 'cylinder', r: radius, h: len });
+    }
+
+    // ---- giant smooth ring arch: a single huge, high-segment ring gate
+    // (uses the existing addRingGate schematic with a big segment count for
+    // an ultra-smooth circular silhouette) planted as a monumental
+    // entrance you fly through from a long approach ----
+    const giantRingMat = new THREE.MeshStandardMaterial({ color: 0x4dd8ff, roughness: 0.3, metalness: 0.2 });
+    addRingGate(0, 26, -240, 22, giantRingMat, 40);
+    addRingGate(0, 26, -220, 16, smoothMatD, 32); // smaller concentric second ring just behind it for a layered look
+
+    // ---- twisting ribbon tower: a tall structure made of two smooth
+    // helical bands winding around each other (like a DNA double-helix),
+    // wide enough to fly up through the core between the two strands ----
+    function buildDoubleHelixTower(cx, cz, radius, height, turns, segsPerTurn){
+      const totalSegs = turns * segsPerTurn;
+      for (let strand = 0; strand < 2; strand++){
+        const phase = strand * Math.PI; // second strand offset 180°
+        const mat = strand === 0 ? smoothMatC : smoothMatA;
+        let prev = null;
+        for (let i = 0; i <= totalSegs; i++){
+          const t = i / totalSegs;
+          const a = t * Math.PI * 2 * turns + phase;
+          const x = cx + Math.cos(a) * radius;
+          const z = cz + Math.sin(a) * radius;
+          const y = 2 + t * height;
+          if (prev) smoothTube(prev, [x,y,z], 0.45, mat, 10);
+          prev = [x,y,z];
+        }
+      }
+      // slim rungs connecting the two strands every so often, like DNA
+      // base-pairs — thin enough to not block the flight path through core
+      for (let i = 0; i < turns * 3; i++){
+        const t = i / (turns*3);
+        const a = t * Math.PI * 2 * turns;
+        const y = 2 + t * height;
+        const x0 = cx + Math.cos(a) * radius, z0 = cz + Math.sin(a) * radius;
+        const x1 = cx + Math.cos(a+Math.PI) * radius, z1 = cz + Math.sin(a+Math.PI) * radius;
+        smoothTube([x0,y,z0], [x1,y,z1], 0.18, smoothMatB, 8);
+      }
+    }
+    buildDoubleHelixTower(-180, -100, 7, 50, 4, 14);
+
+    // ---- geodesic-style dome: a smooth hemisphere built from latitude
+    // rings of decreasing radius plus longitude arcs, with a wide open
+    // "equator" gap at flight height so you can rocket straight through
+    // the middle, or skim the curved shell on the way over the top ----
+    function buildGeoDome(cx, cz, baseY, R, rings){
+      const domeMat = smoothMatA;
+      // longitude arcs (meridians) — smooth tube segments following a
+      // circular arc from base to apex
+      const meridians = 10;
+      for (let m = 0; m < meridians; m++){
+        const lon = (m / meridians) * Math.PI * 2;
+        let prev = null;
+        const arcSegs = 14;
+        for (let i = 0; i <= arcSegs; i++){
+          const t = i / arcSegs; // 0 at base rim, 1 at apex
+          const lat = t * (Math.PI/2);
+          const r = R * Math.cos(lat);
+          const y = baseY + R * Math.sin(lat);
+          const x = cx + Math.cos(lon) * r;
+          const z = cz + Math.sin(lon) * r;
+          if (prev) smoothTube(prev, [x,y,z], 0.32, domeMat, 8);
+          prev = [x,y,z];
+        }
+      }
+      // latitude rings (only upper bands, leaving the whole base area open
+      // as one giant fly-through equator gap rather than a solid rim)
+      for (let ringIdx = 1; ringIdx <= rings; ringIdx++){
+        const lat = (ringIdx / (rings+1)) * (Math.PI/2);
+        const r = R * Math.cos(lat);
+        const y = baseY + R * Math.sin(lat);
+        addRingGate(cx, y, cz, r, domeMat, 28);
+      }
+    }
+    buildGeoDome(180, 120, 2, 26, 3);
+
+    // ---- wave tunnel: a long corridor whose floor and ceiling undulate
+    // smoothly in a sine wave (rather than staying flat), so flying through
+    // means pitching up and down continuously to stay centered ----
+    function buildWaveTunnel(sx, sz, length, width, baseH, amplitude, waves, segCount){
+      const waveMat = smoothMatC;
+      const segLen = length / segCount;
+      let prevFloor = null, prevCeil = null, prevWallL = null, prevWallR = null;
+      for (let i = 0; i <= segCount; i++){
+        const t = i / segCount;
+        const z = sz - t * length;
+        const wave = Math.sin(t * Math.PI * 2 * waves) * amplitude;
+        const floorY = 1 + wave;
+        const ceilY = floorY + baseH;
+        const floorPt = [sx, floorY, z];
+        const ceilPt = [sx, ceilY, z];
+        const wallLPt = [sx - width/2, (floorY+ceilY)/2, z];
+        const wallRPt = [sx + width/2, (floorY+ceilY)/2, z];
+        if (prevFloor){
+          smoothTube(prevFloor, floorPt, 0.4, waveMat, 8);
+          smoothTube(prevCeil, ceilPt, 0.4, waveMat, 8);
+        }
+        // occasional cross-rib for structure & a clear "through" gap read
+        if (i % 3 === 0){
+          smoothTube([sx-width/2, floorY, z], [sx-width/2, ceilY, z], 0.35, smoothMatD, 8);
+          smoothTube([sx+width/2, floorY, z], [sx+width/2, ceilY, z], 0.35, smoothMatD, 8);
+        }
+        prevFloor = floorPt; prevCeil = ceilPt; prevWallL = wallLPt; prevWallR = wallRPt;
+      }
+    }
+    buildWaveTunnel(-160, 60, 90, 9, 8, 4, 2.5, 24);
+
+    // ---- inflatable-style smooth arch chain: big rounded checkered arches
+    // (rather than boxy ones) made of smooth curved tube segments, forming
+    // a bouncy-castle-like gauntlet of rounded doorways ----
+    function buildSmoothArchChain(sx, sz, count, gap, R){
+      for (let i = 0; i < count; i++){
+        const cz = sz - i * gap;
+        const cx = sx + Math.sin(i*0.8) * 5;
+        const cy = R + 1;
+        const arcSegs = 12;
+        let prev = null;
+        for (let s = 0; s <= arcSegs; s++){
+          const a = Math.PI * (s/arcSegs); // 0..PI, half circle across the top
+          const localX = cx - R + (2*R) * (s/arcSegs);
+          const y = cy + Math.sin(a) * R;
+          const pt = [localX, y, cz];
+          if (prev) smoothTube(prev, pt, 0.5, i % 2 === 0 ? smoothMatA : smoothMatB, 10);
+          prev = pt;
+        }
+      }
+    }
+    buildSmoothArchChain(60, 160, 5, 10, 5);
 
     // ---- ring gate hoops: original schematic, kept exactly as-is ----
     const ringMat1 = new THREE.MeshStandardMaterial({ color: 0xff4d5e });
