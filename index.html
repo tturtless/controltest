@@ -718,7 +718,8 @@
   const ROGUE_DESPAWN_AFTER = 10;   // seconds sitting on the ground before it despawns
   const CHUTE_COLLAPSE_TIME = 0.75; // s for the chute to settle/flatten onto the ground after landing
   let chuteCollapseT = 0;           // 0 = just landed (still inflated), 1 = fully collapsed flat
-  let chuteCollapseFromRot = null;  // captured chute rotation at the moment of landing (for lerp start)
+  let chuteHeight = 1.6;            // current canopy height above the drone (world units)
+  let chuteScale = 1;               // current canopy scale (1 = full open)
   let containedCount = 0;
 
   // ---- Rogue drone "skill tiers" — each capture escalates the challenge.
@@ -1652,7 +1653,11 @@
   }
 
   function spawnRogue(){
-    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    if (rogueGroup) {
+      if (rogueGroup.userData.chute) scene.remove(rogueGroup.userData.chute);
+      scene.remove(rogueGroup);
+      rogueGroup = null;
+    }
     const tier = ROGUE_TIERS[Math.min(rogueTierIdx, ROGUE_TIERS.length - 1)];
     rogueGroup = createRogueDrone(tier);
     pickRogueTarget();
@@ -1665,7 +1670,8 @@
     rogueChuteTimer = 0;
     rogueChuteOpen = false;
     chuteCollapseT = 0;
-    chuteCollapseFromRot = null;
+    chuteHeight = 1.6;
+    chuteScale = 1;
     if (flyGameOsd) flyGameOsd.textContent = `ROGUE DRONES CONTAINED: ${containedCount}  |  TARGET: ${tier.name}`;
   }
 
@@ -1716,6 +1722,8 @@
       if (!rogueChuteOpen && rogueChuteTimer >= CHUTE_DEPLOY_DELAY){
         deployChute(rogueGroup);
         rogueChuteOpen = true;
+        chuteHeight = 1.6;
+        chuteScale = 1;
       }
       rogueVel.y += ROGUE_GRAVITY * dt;
       if (rogueChuteOpen){
@@ -1733,6 +1741,7 @@
         rogueGroup.rotation.z += 9 * dt;
       }
       rogueGroup.position.addScaledVector(rogueVel, dt);
+      if (rogueChuteOpen) updateChuteRig(rogueGroup, chuteHeight, chuteScale);
       if (rogueGroup.position.y <= ROGUE_GROUND_Y){
         rogueGroup.position.y = ROGUE_GROUND_Y;
         rogueVel.set(0,0,0);
@@ -1740,10 +1749,7 @@
         rogueState = 'grounded';
         rogueGroundTimer = 0;
         // start a smooth collapse of the chute onto the ground instead of snapping it flat
-        if (rogueGroup.userData.chute){
-          chuteCollapseT = 0;
-          chuteCollapseFromRot = rogueGroup.userData.chute.rotation.clone();
-        }
+        chuteCollapseT = 0;
         flyMsg.textContent = 'ROGUE DRONE DOWN — despawning in 10s';
         setTimeout(() => { if (netGameActive && rogueState === 'grounded') flyMsg.textContent = ''; }, 1800);
       }
@@ -1754,19 +1760,12 @@
       if (rogueGroup.userData.chute && chuteCollapseT < 1){
         chuteCollapseT = Math.min(1, chuteCollapseT + dt / CHUTE_COLLAPSE_TIME);
         const e = 1 - Math.pow(1 - chuteCollapseT, 3); // ease-out cubic, gentle settle rather than a sudden snap
-        const chuteGrp = rogueGroup.userData.chute;
-        const targetRot = new THREE.Euler(-0.28, 0, -0.5); // cancels drone's tip so canopy ends up lying flat in world space
-        if (chuteCollapseFromRot){
-          chuteGrp.rotation.x = THREE.MathUtils.lerp(chuteCollapseFromRot.x, targetRot.x, e);
-          chuteGrp.rotation.y = THREE.MathUtils.lerp(chuteCollapseFromRot.y, targetRot.y, e);
-          chuteGrp.rotation.z = THREE.MathUtils.lerp(chuteCollapseFromRot.z, targetRot.z, e);
-        }
-        chuteGrp.position.y = THREE.MathUtils.lerp(1.6, 0, e);
-        const yScale = THREE.MathUtils.lerp(1, 0.12, e);
-        const xzScale = THREE.MathUtils.lerp(1, 0.55, e); // canopy shrinks inward too, so it settles beside the net instead of clipping through it
-        chuteGrp.scale.set(xzScale, yScale, xzScale);
+        chuteHeight = THREE.MathUtils.lerp(1.6, 0.05, e); // canopy sinks down to just above the ground/net
+        chuteScale = THREE.MathUtils.lerp(1, 0.5, e);     // and shrinks/deflates as it settles
+        updateChuteRig(rogueGroup, chuteHeight, chuteScale);
       }
       if (rogueGroundTimer >= ROGUE_DESPAWN_AFTER){
+        if (rogueGroup.userData.chute) scene.remove(rogueGroup.userData.chute);
         scene.remove(rogueGroup);
         rogueGroup = null;
         rogueAlive = false;
@@ -1783,6 +1782,10 @@
 
   // Deploys a small canopy above the captured drone once netted — a simple
   // billowed dome + shroud lines, matched in color to the net itself.
+  // Added directly to the scene (NOT parented to the drone) so it stays
+  // upright regardless of how the netted drone tumbles; position and the
+  // shroud-line geometry are refreshed every frame in updateRogueDrone so
+  // the cords always visibly terminate exactly on the drone/net.
   function deployChute(grp){
     if (grp.userData.chute) return;
     const chuteGrp = new THREE.Group();
@@ -1790,19 +1793,45 @@
       new THREE.SphereGeometry(0.9, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
-    canopy.position.y = 1.6;
     chuteGrp.add(canopy);
+    chuteGrp.userData.canopy = canopy;
     const lineMat = new THREE.LineBasicMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.7 });
     const lineCount = 6;
+    const lines = [];
+    for (let i = 0; i < lineCount; i++){
+      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const line = new THREE.Line(geo, lineMat);
+      chuteGrp.add(line);
+      lines.push(line);
+    }
+    chuteGrp.userData.lines = lines;
+    chuteGrp.userData.lineCount = lineCount;
+    chuteGrp.position.copy(grp.position).add(new THREE.Vector3(0, 1.6, 0));
+    scene.add(chuteGrp);
+    grp.userData.chute = chuteGrp;
+  }
+
+  // Keeps the chute canopy positioned above the drone and redraws the shroud
+  // lines each frame from the canopy's rim down to the drone's actual current
+  // position, so the cords never visually detach from the net as it tumbles,
+  // drifts, or lands.
+  function updateChuteRig(grp, canopyHeight, canopyScale){
+    const chuteGrp = grp.userData.chute;
+    if (!chuteGrp) return;
+    const dronePos = grp.position;
+    const canopyCenter = new THREE.Vector3(dronePos.x, dronePos.y + canopyHeight, dronePos.z);
+    chuteGrp.position.copy(canopyCenter);
+    chuteGrp.userData.canopy.scale.setScalar(canopyScale);
+    const rimR = 0.85 * canopyScale;
+    const lines = chuteGrp.userData.lines;
+    const lineCount = chuteGrp.userData.lineCount;
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
-      const rim = new THREE.Vector3(Math.cos(ang) * 0.85, 1.65, Math.sin(ang) * 0.85);
-      const geo = new THREE.BufferGeometry().setFromPoints([rim, new THREE.Vector3(0, 0, 0)]);
-      chuteGrp.add(new THREE.Line(geo, lineMat));
+      const rimWorld = new THREE.Vector3(Math.cos(ang) * rimR, 0.05 * canopyScale, Math.sin(ang) * rimR).add(canopyCenter);
+      const rimLocal = rimWorld.clone().sub(chuteGrp.position);
+      const droneLocal = dronePos.clone().sub(chuteGrp.position);
+      lines[i].geometry.setFromPoints([rimLocal, droneLocal]);
     }
-    grp.add(chuteGrp);
-    chuteGrp.position.set(0, 1.6, 0);
-    grp.userData.chute = chuteGrp;
   }
 
   // A woven-look net disc: radial "spokes" + concentric rings + weighted
@@ -2063,7 +2092,11 @@
     netSwitchPrev = false;
     rogueAlive = false;
     rogueState = 'flying';
-    if (rogueGroup) { scene.remove(rogueGroup); rogueGroup = null; }
+    if (rogueGroup) {
+      if (rogueGroup.userData.chute) scene.remove(rogueGroup.userData.chute);
+      scene.remove(rogueGroup);
+      rogueGroup = null;
+    }
     netProjectiles.forEach(np => scene.remove(np.mesh));
     netProjectiles = [];
     if (flyNetLabel) flyNetLabel.style.display = 'none';
