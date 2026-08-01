@@ -688,12 +688,12 @@
   let netGameActive = false;
   let netDeployed = false;      // raw axis-6/key-N switch state, read each frame
   let netSwitchPrev = false;        // edge-detect: one net per off→on flip of the switch
-  const NET_SPEED = 11;             // m/s, muzzle velocity — short, punchy throw (~6-8m effective range, ~1.5 hurdle-lengths)
+  const NET_SPEED = 99;             // m/s, muzzle velocity — travel speed tripled again
   const NET_GRAVITY = -3;           // gentle droop so the short throw still arcs a little
-  const NET_LIFETIME = 1.6;         // seconds before an unfired-hit net despawns (short-range throw)
+  // NET_LIFETIME removed — an unfired net now stays live until it hits the ground
   const NET_MIN_SCALE = 0.18;       // bundled size right at the muzzle
   const NET_MAX_SCALE = 3.4;        // fully blossomed net radius (meters) — extra-wide coverage
-  const NET_OPEN_TIME = 0.16;       // seconds to go from bundled to fully open (snappier deploy)
+  const NET_OPEN_TIME = 0.16;       // seconds to go from bundled to fully open
   const ROGUE_HIT_PAD = 0.9;        // extra forgiveness added to the net's open radius for the hit test
   let netProjectiles = [];          // in-flight nets: {mesh, vel, age}
 
@@ -1865,7 +1865,7 @@
           spent = true;
         }
       }
-      if (spent || np.age > NET_LIFETIME || np.mesh.position.y < 0){
+      if (spent || np.mesh.position.y < 0){
         scene.remove(np.mesh);
         netProjectiles.splice(i, 1);
       }
