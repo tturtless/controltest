@@ -1734,6 +1734,13 @@
         rogueGroup.rotation.set(0.28, rogueGroup.rotation.y, 0.5); // tipped over, netted, on the ground
         rogueState = 'grounded';
         rogueGroundTimer = 0;
+        // let the collapsed chute drape down onto the ground instead of hovering above the drone
+        if (rogueGroup.userData.chute){
+          const chuteGrp = rogueGroup.userData.chute;
+          chuteGrp.position.y = 0;
+          chuteGrp.rotation.set(-0.28, 0, -0.5); // cancel drone's tip so canopy lies flat in world space
+          chuteGrp.scale.set(1, 0.15, 1); // squash flat like a deflated canopy pooled on the ground
+        }
         flyMsg.textContent = 'ROGUE DRONE DOWN — despawning in 10s';
         setTimeout(() => { if (netGameActive && rogueState === 'grounded') flyMsg.textContent = ''; }, 1800);
       }
