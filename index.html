@@ -718,7 +718,7 @@
   const ROGUE_DESPAWN_AFTER = 10;   // seconds sitting on the ground before it despawns
   const CHUTE_COLLAPSE_TIME = 0.75; // s for the chute to settle/flatten onto the ground after landing
   let chuteCollapseT = 0;           // 0 = just landed (still inflated), 1 = fully collapsed flat
-  let chuteHeight = 1.6;            // current canopy height above the drone (world units)
+  let chuteHeight = 1.9;            // current canopy height above the drone (world units)
   let chuteScale = 1;               // current canopy scale (1 = full open)
   let chuteLateralAngle = 0;        // horizontal direction the chute drifts to once grounded
   let containedCount = 0;
@@ -730,7 +730,7 @@
   const ROGUE_TIERS = [
     { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0,    scale: 1.0, roamRadius: 45, turnRate: 6  },
     { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.7, roamRadius: 60, turnRate: 8  },
-    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 2.3, roamRadius: 78, turnRate: 10 },
+    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 1.5, roamRadius: 78, turnRate: 10 },
     { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6,  scale: 1.9, roamRadius: 90, turnRate: 10 },
   ];
   let rogueTierIdx = 0;
@@ -1860,7 +1860,7 @@
     rogueChuteTimer = 0;
     rogueChuteOpen = false;
     chuteCollapseT = 0;
-    chuteHeight = 1.6;
+    chuteHeight = 1.9;
     chuteScale = 1;
     if (flyGameOsd) flyGameOsd.textContent = `ROGUE DRONES CONTAINED: ${containedCount}  |  TARGET: ${tier.name}`;
   }
@@ -1924,7 +1924,7 @@
       if (!rogueChuteOpen && rogueChuteTimer >= CHUTE_DEPLOY_DELAY){
         deployChute(rogueGroup);
         rogueChuteOpen = true;
-        chuteHeight = 1.6;
+        chuteHeight = 1.9;
         chuteScale = 1;
       }
       rogueVel.y += ROGUE_GRAVITY * dt;
@@ -1963,7 +1963,7 @@
       if (rogueGroup.userData.chute && chuteCollapseT < 1){
         chuteCollapseT = Math.min(1, chuteCollapseT + dt / CHUTE_COLLAPSE_TIME);
         const e = 1 - Math.pow(1 - chuteCollapseT, 3); // ease-out cubic, gentle settle rather than a sudden snap
-        chuteHeight = THREE.MathUtils.lerp(1.6, 0.05, e); // canopy sinks down to just above the ground
+        chuteHeight = THREE.MathUtils.lerp(1.9, 0.05, e); // canopy sinks down to just above the ground
         chuteScale = THREE.MathUtils.lerp(1, 0.8, e);      // deflates only slightly, stays a visible size on the ground
         const chuteFlatten = THREE.MathUtils.lerp(1, 0.12, e); // dome squashes down into a flat pancaked canopy
         const lateralDist = THREE.MathUtils.lerp(0, 1.6, e); // drifts out to the side so it lands beside the net, not through it
@@ -1992,11 +1992,12 @@
   // upright regardless of how the netted drone tumbles; position and the
   // shroud-line geometry are refreshed every frame in updateRogueDrone so
   // the cords always visibly terminate exactly on the drone/net.
+  const CANOPY_RADIUS = 1.35; // canopy dome radius at full scale — a bigger, more visible chute
   function deployChute(grp){
     if (grp.userData.chute) return;
     const chuteGrp = new THREE.Group();
     const canopy = new THREE.Mesh(
-      new THREE.SphereGeometry(0.9, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.SphereGeometry(CANOPY_RADIUS, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
     chuteGrp.add(canopy);
@@ -2012,16 +2013,20 @@
     }
     chuteGrp.userData.lines = lines;
     chuteGrp.userData.lineCount = lineCount;
-    chuteGrp.position.copy(grp.position).add(new THREE.Vector3(0, 1.6, 0));
+    chuteGrp.position.copy(grp.position).add(new THREE.Vector3(0, 1.9, 0));
     scene.add(chuteGrp);
     grp.userData.chute = chuteGrp;
   }
 
   // Keeps the chute canopy positioned above (and, once grounded, beside) the
   // drone, and redraws the shroud lines each frame from the canopy's rim down
-  // to points on the net's outer wrap-sphere surface — not the drone's center
-  // — so the cords always look like they're tied to the net itself and never
-  // detach visually as it tumbles, drifts, or lands.
+  // to a tight riser bundle just above the net — not clear out to the net's
+  // full wrap radius, which is what caused the "exploded"/glitched look on
+  // wide-winged tiers (their wrap radius is much bigger than the canopy
+  // itself, so lines were shooting out sideways instead of converging).
+  // Real paradrop risers gather tight regardless of the load's size, so the
+  // anchor radius is capped to a small fraction of the canopy, not the
+  // drone's own bounding radius.
   const NET_WRAP_RADIUS = 0.8; // fallback if a drone somehow has no stored wrap radius
   function updateChuteRig(grp, canopyHeight, canopyScale, lateralOffset, lateralAngle, flatten){
     const chuteGrp = grp.userData.chute;
@@ -2030,22 +2035,26 @@
     lateralAngle = lateralAngle || 0;
     flatten = flatten === undefined ? 1 : flatten; // 1 = full dome height, toward 0 = pancaked flat
     const dronePos = grp.position;
-    const wrapRadius = grp.userData.wrapRadius || NET_WRAP_RADIUS; // matches this drone's actual scaled wrap sphere
+    const rawWrapRadius = grp.userData.wrapRadius || NET_WRAP_RADIUS;
+    // cap how far out the shroud lines can reach, independent of how wide
+    // the actual airframe is — keeps the riser bundle tidy on every tier
+    const anchorRadius = Math.min(rawWrapRadius, CANOPY_RADIUS * 0.55);
     const offsetX = Math.cos(lateralAngle) * lateralOffset;
     const offsetZ = Math.sin(lateralAngle) * lateralOffset;
     const canopyCenter = new THREE.Vector3(dronePos.x + offsetX, dronePos.y + canopyHeight, dronePos.z + offsetZ);
     chuteGrp.position.copy(canopyCenter);
     chuteGrp.userData.canopy.scale.set(canopyScale, canopyScale * flatten, canopyScale);
-    const rimR = 0.85 * canopyScale;
+    const rimR = CANOPY_RADIUS * 0.9 * canopyScale;
     const lines = chuteGrp.userData.lines;
     const lineCount = chuteGrp.userData.lineCount;
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
       const rimWorld = new THREE.Vector3(Math.cos(ang) * rimR, 0.05 * canopyScale * flatten, Math.sin(ang) * rimR).add(canopyCenter);
-      // anchor point on the outside surface of the net's wrap sphere, facing this rim point
+      // anchor point on a small riser bundle just above the netted drone,
+      // facing this rim point — tight and consistent regardless of airframe size
       const towardRim = rimWorld.clone().sub(dronePos);
       const anchorDir = towardRim.lengthSq() > 0.0001 ? towardRim.normalize() : new THREE.Vector3(0, 1, 0);
-      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, wrapRadius);
+      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, anchorRadius).add(new THREE.Vector3(0, anchorRadius * 0.4, 0));
       const rimLocal = rimWorld.clone().sub(chuteGrp.position);
       const anchorLocal = netAnchorWorld.clone().sub(chuteGrp.position);
       lines[i].geometry.setFromPoints([rimLocal, anchorLocal]);
@@ -2158,9 +2167,12 @@
   // dangling below with cords — instead of one uniform wireframe bubble.
   function createCaptureWrap(bodySize){
     const grp = new THREE.Group();
-    const halfX = Math.max(bodySize.x, 0.4) / 2 * 1.1;
-    const halfY = Math.max(bodySize.y, 0.35) / 2 * 1.5; // extra vertical slack so it visibly bunches, not skin-tight
-    const halfZ = Math.max(bodySize.z, 0.4) / 2 * 1.1;
+    // cap the wrap's footprint so a wide-winged airframe still cinches down
+    // into a tidy bundle under the chute, instead of the net silhouette
+    // sprawling out to the drone's full uncaptured wingspan
+    const halfX = Math.min(Math.max(bodySize.x, 0.4) / 2 * 1.1, 1.0);
+    const halfY = Math.min(Math.max(bodySize.y, 0.35) / 2 * 1.5, 0.75); // extra vertical slack so it visibly bunches, not skin-tight
+    const halfZ = Math.min(Math.max(bodySize.z, 0.4) / 2 * 1.1, 1.0);
 
     const cordMat = new THREE.MeshBasicMaterial({ color: 0xf0f0f0, transparent: true, opacity: 0.85 });
     const strandMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
