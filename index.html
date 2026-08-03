@@ -1755,42 +1755,48 @@
     } else {
       // ---- PHANTOM (tier 4): tailless delta flying-wing UCAV — clean
       // triangular planform (stealth-UCAV silhouette, in the vein of an
-      // X-47B/RQ-170), built as graduated chordwise panels along a single
-      // straight sweep line so the leading edge reads as one clean taper
-      // instead of a bent/kinked wing. Uses only boxes/cylinders for
-      // guaranteed compatibility (no Shape/Extrude geometry). No visible
-      // prop — reads as jet-powered, with a rear nozzle instead. ----
-      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.12, 0.42), bodyMat);
-      spine.position.set(0.14, 0, 0);
+      // X-47B/RQ-170). Each spanwise slice is an unrotated box sized to the
+      // wing's actual chord at that station, so the leading edge sweeps back
+      // in a straight taper with no diagonal/rotated panels to catch the eye
+      // as visual noise — just boxes and cylinders (no Shape/Extrude) for
+      // guaranteed compatibility. No visible prop — reads as jet-powered,
+      // with a rear nozzle instead. ----
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.4), bodyMat);
+      spine.position.set(0.1, 0, 0);
       body.add(spine);
-      const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.3, 8), bodyMat);
+      const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 8), bodyMat);
       noseTip.rotation.z = -Math.PI / 2;
       noseTip.position.set(0.6, 0, 0);
       body.add(noseTip);
 
-      const PANELS = 5;
-      const rootX = 0.5, rootHalfSpan = 0.3;   // wing root, near the nose
-      const tipX = -0.62, tipHalfSpan = 1.35;  // wingtip, swept back and outboard
+      // leading edge sweeps from the nose back to the wingtip; trailing edge
+      // sweeps back too, but less steeply, so the chord shortens toward the
+      // tip — the classic tapered-delta silhouette
+      const rootZ = 0.16, tipZ = 1.3;
+      const rootLE = 0.55, tipLE = -0.42;   // leading edge x at root / tip
+      const rootTE = -0.05, tipTE = -0.6;   // trailing edge x at root / tip
+      const SLICES = 7;
       [1, -1].forEach(s => {
-        for (let i = 0; i < PANELS; i++){
-          const t0 = i / PANELS, t1 = (i + 1) / PANELS;
-          const x0 = THREE.MathUtils.lerp(rootX, tipX, t0);
-          const x1 = THREE.MathUtils.lerp(rootX, tipX, t1);
-          const z0 = THREE.MathUtils.lerp(rootHalfSpan, tipHalfSpan, t0);
-          const z1 = THREE.MathUtils.lerp(rootHalfSpan, tipHalfSpan, t1);
-          const midX = (x0 + x1) / 2, midZ = s * (z0 + z1) / 2;
-          const len = Math.hypot(x1 - x0, z1 - z0) * 1.1; // slight overlap to hide seams between panels
-          const chord = THREE.MathUtils.lerp(0.5, 0.12, (t0 + t1) / 2); // tapers toward the tip
-          const panel = new THREE.Mesh(new THREE.BoxGeometry(chord, 0.045, len), bodyMat);
-          panel.position.set(midX, 0, midZ);
-          panel.rotation.y = Math.atan2(x1 - x0, s * (z1 - z0));
+        for (let i = 0; i < SLICES; i++){
+          const f0 = i / SLICES, f1 = (i + 1) / SLICES;
+          const z0 = THREE.MathUtils.lerp(rootZ, tipZ, f0);
+          const z1 = THREE.MathUtils.lerp(rootZ, tipZ, f1);
+          const fm = (f0 + f1) / 2;
+          const leX = THREE.MathUtils.lerp(rootLE, tipLE, fm);
+          const teX = THREE.MathUtils.lerp(rootTE, tipTE, fm);
+          const chord = Math.max(leX - teX, 0.08);
+          const panel = new THREE.Mesh(
+            new THREE.BoxGeometry(chord, 0.05, (z1 - z0) * 1.15),
+            bodyMat
+          );
+          panel.position.set((leX + teX) / 2, 0, s * (z0 + z1) / 2);
           body.add(panel);
         }
       });
       // rear jet nozzle — tailless stealth-UCAV styling, no visible prop
       const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.2, 10), armMat);
       nozzle.rotation.z = Math.PI / 2;
-      nozzle.position.set(-0.64, 0, 0);
+      nozzle.position.set(-0.62, 0, 0);
       body.add(nozzle);
     }
 
@@ -1816,6 +1822,7 @@
     const boundSphere = bounds.getBoundingSphere(new THREE.Sphere());
     const bodyRadius = Math.max(boundSphere.radius, 0.5);
     grp.userData.bodyRadius = bodyRadius;
+    grp.userData.bodySize = bounds.getSize(new THREE.Vector3());
 
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(bodyRadius * 1.15, 0.05, 8, 24),
@@ -1895,7 +1902,7 @@
       // broken once the body became a real quad/fixed-wing shape instead of
       // a symmetric octahedron
       if (toTarget.lengthSq() > 0.0001 && rogueGroup.userData.body){
-        const desiredYaw = Math.atan2(toTarget.x, toTarget.z) + Math.PI / 2; // model's nose points along +X
+        const desiredYaw = Math.atan2(toTarget.x, toTarget.z) - Math.PI / 2; // model's nose points along +X
         let yawDiff = desiredYaw - rogueGroup.userData.body.rotation.y;
         yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff)); // shortest-path wrap, avoids snapping the long way around
         const turnRate = tier.turnRate || 6;
@@ -2143,6 +2150,67 @@
     }
   }
 
+  // Builds a tangled, weighted capture net draped over a drone's actual
+  // silhouette — a handful of loosely-tilted rope loops squashed to the
+  // body's real bounding box (so it hugs a wide flying-wing differently
+  // than a compact quad), a few crossing slack strands bunched over the
+  // top like mesh dragged tight by the throw, and small weighted corners
+  // dangling below with cords — instead of one uniform wireframe bubble.
+  function createCaptureWrap(bodySize){
+    const grp = new THREE.Group();
+    const halfX = Math.max(bodySize.x, 0.4) / 2 * 1.1;
+    const halfY = Math.max(bodySize.y, 0.35) / 2 * 1.5; // extra vertical slack so it visibly bunches, not skin-tight
+    const halfZ = Math.max(bodySize.z, 0.4) / 2 * 1.1;
+
+    const cordMat = new THREE.MeshBasicMaterial({ color: 0xf0f0f0, transparent: true, opacity: 0.85 });
+    const strandMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+    const weightMat = new THREE.MeshBasicMaterial({ color: 0x2a6f8a });
+
+    // rope loops, each an ellipsoid-squashed torus at a random tilt — the
+    // "wraps" of the net as it cinched around the airframe
+    const LOOPS = 6;
+    for (let i = 0; i < LOOPS; i++){
+      const baseR = Math.max(halfX, halfY, halfZ);
+      const torus = new THREE.Mesh(new THREE.TorusGeometry(baseR, Math.max(baseR * 0.03, 0.018), 6, 20), cordMat);
+      torus.scale.set(halfX / baseR, halfY / baseR, halfZ / baseR);
+      torus.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      grp.add(torus);
+    }
+
+    // loose crossing strands bunched over the top, like mesh dragged taut
+    const STRANDS = 10;
+    for (let i = 0; i < STRANDS; i++){
+      const a1 = Math.random() * Math.PI * 2, a2 = Math.random() * Math.PI * 2;
+      const p1 = new THREE.Vector3(Math.cos(a1) * halfX, Math.sin(a1 * 0.6) * halfY * 0.7, Math.sin(a1) * halfZ);
+      const p2 = new THREE.Vector3(Math.cos(a2) * halfX, Math.sin(a2 * 0.6) * halfY * 0.7, Math.sin(a2) * halfZ);
+      const mid = p1.clone().add(p2).multiplyScalar(0.5).add(new THREE.Vector3(0, halfY * 0.6, 0));
+      const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
+      const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(6));
+      grp.add(new THREE.Line(geo, strandMat));
+    }
+
+    // weighted corners, dangling loose and slightly tangled below the wrap —
+    // matches the same weight styling as the net projectile itself
+    const WEIGHTS = 4;
+    for (let i = 0; i < WEIGHTS; i++){
+      const ang = (i / WEIGHTS) * Math.PI * 2 + Math.random() * 0.7;
+      const wx = Math.cos(ang) * halfX * 1.05;
+      const wz = Math.sin(ang) * halfZ * 1.05;
+      const wy = -halfY * (0.85 + Math.random() * 0.5);
+      const wr = Math.max(halfY * 0.22, 0.05);
+      const w = new THREE.Mesh(new THREE.SphereGeometry(wr, 6, 6), weightMat);
+      w.position.set(wx, wy, wz);
+      grp.add(w);
+      const cordGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(wx, wy + wr, wz),
+        new THREE.Vector3(wx * 0.45, 0, wz * 0.45)
+      ]);
+      grp.add(new THREE.Line(cordGeo, strandMat));
+    }
+
+    return grp;
+  }
+
   // Net connects: the rogue drone gets knocked into a controlled fall, drags
   // some of the net's momentum with it, then drops to the ground to despawn
   // 10s later — same "Iron-Drone-Raider"-style net-and-drop, arcade timing.
@@ -2156,16 +2224,13 @@
     rogueVel.y = Math.max(rogueVel.y, 4.5); // strong vertical pop for a visible apogee before the chute settles it
 
     if (rogueGroup && !rogueGroup.userData.wrap){
-      // use the measured bounding-sphere radius (set in createRogueDrone) so
-      // the wrap actually encloses the drone regardless of how wide or
-      // narrow its silhouette is — critical for the wingspan-heavy fixed-wing
-      // and delta tiers, which are far wider than their "scale" alone implies
+      // wrapRadius still drives the parachute shroud-line anchor math below —
+      // keep it as a bounding-sphere figure even though the visible wrap
+      // itself is now the tangled net group, not a sphere mesh
       const fallbackScale = (rogueGroup.userData.tier && rogueGroup.userData.tier.scale) || 1;
-      const wrapRadius = (rogueGroup.userData.bodyRadius || 0.8 * fallbackScale) * 1.18;
-      const wrap = new THREE.Mesh(
-        new THREE.SphereGeometry(wrapRadius, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.75 })
-      );
+      const wrapRadius = (rogueGroup.userData.bodyRadius || 0.8 * fallbackScale) * 1.1;
+      const bodySize = rogueGroup.userData.bodySize || new THREE.Vector3(1, 0.6, 1);
+      const wrap = createCaptureWrap(bodySize);
       rogueGroup.add(wrap);
       rogueGroup.userData.wrap = wrap;
       rogueGroup.userData.wrapRadius = wrapRadius;
