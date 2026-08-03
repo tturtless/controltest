@@ -2167,41 +2167,25 @@
   // dangling below with cords — instead of one uniform wireframe bubble.
   function createCaptureWrap(bodySize){
     const grp = new THREE.Group();
-    // build the wrap to the body's actual footprint proportions (wide/flat
-    // stays wide/flat instead of every tier being forced into the same
-    // cube-ish blob), then uniformly shrink the whole thing if it's still
-    // too big — preserves the silhouette instead of distorting it
-    let halfX = Math.max(bodySize.x, 0.4) / 2 * 1.08;
-    let halfZ = Math.max(bodySize.z, 0.4) / 2 * 1.08;
-    let halfY = Math.max(bodySize.y, 0.3) / 2 + 0.22; // modest additive puff, not a multiplier — a thin flat wing shouldn't balloon into a ball
-    const MAX_HALF = 1.3;
-    const maxHalf = Math.max(halfX, halfY, halfZ);
-    if (maxHalf > MAX_HALF){
-      const k = MAX_HALF / maxHalf;
-      halfX *= k; halfY *= k; halfZ *= k;
-    }
+    // cap the wrap's footprint so a wide-winged airframe still cinches down
+    // into a tidy bundle under the chute, instead of the net silhouette
+    // sprawling out to the drone's full uncaptured wingspan
+    const halfX = Math.min(Math.max(bodySize.x, 0.4) / 2 * 1.1, 1.0);
+    const halfY = Math.min(Math.max(bodySize.y, 0.35) / 2 * 1.5, 0.75); // extra vertical slack so it visibly bunches, not skin-tight
+    const halfZ = Math.min(Math.max(bodySize.z, 0.4) / 2 * 1.1, 1.0);
 
     const cordMat = new THREE.MeshBasicMaterial({ color: 0xf0f0f0, transparent: true, opacity: 0.85 });
     const strandMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
     const weightMat = new THREE.MeshBasicMaterial({ color: 0x2a6f8a });
 
-    // rope loops — squashed flat to the body's actual horizontal footprint,
-    // then tilted a modest, varying amount and stacked at different heights,
-    // like a net actually cinched around the airframe. A previous version
-    // rotated each loop fully randomly on all 3 axes before applying a heavy
-    // non-uniform scale, which — on a wide, flat fixed-wing/delta body —
-    // warped the tori into pinched, bowtie-looking rings instead of clean
-    // wraps. Keeping the scale in the horizontal plane and only mildly
-    // tilting each loop avoids that distortion.
+    // rope loops, each an ellipsoid-squashed torus at a random tilt — the
+    // "wraps" of the net as it cinched around the airframe
     const LOOPS = 6;
-    const baseR = Math.max(halfX, halfZ);
     for (let i = 0; i < LOOPS; i++){
-      const torus = new THREE.Mesh(new THREE.TorusGeometry(baseR, Math.max(baseR * 0.035, 0.02), 6, 20), cordMat);
-      torus.scale.set(halfX / baseR, 1, halfZ / baseR);
-      torus.rotation.x = (Math.random() - 0.5) * 0.9;
-      torus.rotation.z = (Math.random() - 0.5) * 0.9;
-      torus.rotation.y = Math.random() * Math.PI;
-      torus.position.y = (Math.random() - 0.5) * halfY * 0.7;
+      const baseR = Math.max(halfX, halfY, halfZ);
+      const torus = new THREE.Mesh(new THREE.TorusGeometry(baseR, Math.max(baseR * 0.03, 0.018), 6, 20), cordMat);
+      torus.scale.set(halfX / baseR, halfY / baseR, halfZ / baseR);
+      torus.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
       grp.add(torus);
     }
 
@@ -2242,11 +2226,6 @@
   // Net connects: the rogue drone gets knocked into a controlled fall, drags
   // some of the net's momentum with it, then drops to the ground to despawn
   // 10s later — same "Iron-Drone-Raider"-style net-and-drop, arcade timing.
-  // The wrap mesh itself is spawned loose/oversized and animated cinching
-  // down tight over NET_WRAP_SNAP_TIME (see the anim block at the top of
-  // updateRogueDrone), instead of snapping onto the drone instantly.
-  const NET_WRAP_START_SCALE = 2.1; // how loose/open the net looks the instant it connects
-  const NET_WRAP_SNAP_TIME = 0.32;  // seconds for the net to visibly cinch fully tight
   function captureRogue(impactVel){
     rogueState = 'falling';
     rogueChuteTimer = 0;
@@ -2264,14 +2243,9 @@
       const wrapRadius = (rogueGroup.userData.bodyRadius || 0.8 * fallbackScale) * 1.1;
       const bodySize = rogueGroup.userData.bodySize || new THREE.Vector3(1, 0.6, 1);
       const wrap = createCaptureWrap(bodySize);
-      wrap.scale.setScalar(NET_WRAP_START_SCALE);
       rogueGroup.add(wrap);
       rogueGroup.userData.wrap = wrap;
       rogueGroup.userData.wrapRadius = wrapRadius;
-      rogueGroup.userData.wrapAnimT = 0;
-      rogueGroup.userData.wrapSpinAxis = new THREE.Vector3(
-        Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5
-      ).normalize();
     }
     if (rogueGroup && rogueGroup.userData.beacon) rogueGroup.userData.beacon.color.set(0x888888);
 
