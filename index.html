@@ -1654,60 +1654,74 @@
     const propMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
 
     if (tierIdx === 0){
-      // ---- GROUP 1 (SCOUT): compact quadrotor — the smallest, quickest
-      // airframe in the roster. Built with the same part vocabulary as the
-      // Group 2 hex (core / arms / motors / props / landing legs) so it
-      // reads as the same "family" of aircraft, just scaled down. Extra
-      // trim/detail pieces below (accent stripe, motor bell caps, canopy
-      // rim) give it a higher-fidelity, "product shot" look. ----
-      const core = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.5, 1.02), bodyMat);
-      body.add(core);
-      // thin contrasting accent stripe wrapped around the core's waist —
-      // cheap, high-payoff detail that reads as an actual paint job
-      const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.1 });
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.06, 1.05), stripeMat);
-      stripe.position.y = 0.05;
-      body.add(stripe);
-      const canopy = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3, 14, 10),
-        new THREE.MeshStandardMaterial({ color: 0x0d1418, roughness: 0.08, metalness: 0.5 })
-      );
-      canopy.scale.set(1, 0.55, 1);
-      canopy.position.set(0.24, 0.28, 0);
+      // ---- GROUP 1 (SCOUT): compact racing-style quad — redesigned as a
+      // sleek, tapered "X" airframe (angled core plate + swept, X-braced
+      // arms) instead of a flat box-on-sticks, so it reads as an actual
+      // aggressive little racer rather than a generic block quad. ----
+      const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.15 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x0d1418, roughness: 0.06, metalness: 0.55 });
+      const hwMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.28, metalness: 0.65 });
+
+      // tapered top plate — wider at the front, narrowing toward the tail,
+      // giving the silhouette a forward-facing "nose" instead of a square
+      const topPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.5, 0.09, 4), bodyMat);
+      topPlate.rotation.y = Math.PI / 4;
+      topPlate.position.y = 0.1;
+      body.add(topPlate);
+      // matching bottom plate, slightly smaller, sandwiching the "stack"
+      const botPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.44, 0.06, 4), armMat);
+      botPlate.rotation.y = Math.PI / 4;
+      botPlate.position.y = -0.02;
+      body.add(botPlate);
+      // standoffs between the plates at the four corners — real racing-quad detail
+      [[0.28,0.28],[0.28,-0.28],[-0.28,0.28],[-0.28,-0.28]].forEach(([sx,sz]) => {
+        const standoff = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.14, 6), hwMat);
+        standoff.position.set(sx, 0.04, sz);
+        body.add(standoff);
+      });
+      // low, canted canopy sitting toward the nose — angled forward like a
+      // real FPV cam mount rather than a centered dome
+      const canopy = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.28, 8), glassMat);
+      canopy.rotation.z = -Math.PI / 2;
+      canopy.rotation.y = Math.PI / 4;
+      canopy.position.set(0.32, 0.13, 0);
       body.add(canopy);
-      // slim canopy rim trim, same accent color as the stripe
-      const canopyRim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 16), stripeMat);
-      canopyRim.rotation.x = Math.PI / 2;
-      canopyRim.position.set(0.24, 0.29, 0);
-      body.add(canopyRim);
-      const armLen = 0.6;
-      const armPositions = [
-        [1, 1], [1, -1], [-1, 1], [-1, -1]
-      ];
-      armPositions.forEach(([sx, sz]) => {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.15, 0.19), armMat);
-        arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
-        arm.rotation.y = Math.atan2(sz, sx);
+      // thin accent pinstripe along the nose-to-tail centerline
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.01, 0.06), stripeMat);
+      stripe.position.set(0, 0.155, 0);
+      body.add(stripe);
+
+      // swept X-arms: angled outward from center at true 45s (not
+      // axis-aligned), each ending in a motor/prop — the "X" racing-frame
+      // layout instead of a "+" quad
+      const armLen = 0.58;
+      const armAngles = [Math.PI/4, -Math.PI/4, Math.PI*3/4, -Math.PI*3/4];
+      armAngles.forEach(ang => {
+        const sx = Math.cos(ang), sz = Math.sin(ang);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.045, 0.1), armMat);
+        arm.position.set(sx * armLen * 0.5, -0.01, sz * armLen * 0.5);
+        arm.rotation.y = -ang;
         body.add(arm);
-        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.25, 10), armMat);
-        motor.position.set(sx * armLen, 0.07, sz * armLen);
+        // thin brace strut from arm-tip back to the body for a trussed look
+        const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, armLen * 0.85, 5), hwMat);
+        brace.position.set(sx * armLen * 0.5, 0.05, sz * armLen * 0.5);
+        brace.rotation.z = Math.PI / 2;
+        brace.rotation.y = -ang;
+        brace.rotation.x = 0.5;
+        body.add(brace);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.2, 10), armMat);
+        motor.position.set(sx * armLen, 0.04, sz * armLen);
         body.add(motor);
-        // motor bell cap — small domed highlight so the motor doesn't read
-        // as a flat gray cylinder
-        const bellCap = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.15, 0.15, 0.03, 10),
-          new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.6 })
-        );
-        bellCap.position.set(sx * armLen, 0.2, sz * armLen);
+        const bellCap = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.025, 10), hwMat);
+        bellCap.position.set(sx * armLen, 0.15, sz * armLen);
         body.add(bellCap);
-        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.23, 16), propMat);
+        const prop = new THREE.Mesh(new THREE.CircleGeometry(0.21, 16), propMat);
         prop.rotation.x = -Math.PI / 2;
-        prop.position.set(sx * armLen, 0.22, sz * armLen);
+        prop.position.set(sx * armLen, 0.17, sz * armLen);
         body.add(prop);
-        // stubby landing leg — same treatment as the hex frame's legs
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.24, 6), armMat);
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.2, 6), hwMat);
         leg.rotation.z = Math.PI / 7;
-        leg.position.set(sx * armLen * 0.72, -0.15, sz * armLen * 0.72);
+        leg.position.set(sx * armLen * 0.7, -0.13, sz * armLen * 0.7);
         body.add(leg);
       });
 
@@ -1738,83 +1752,98 @@
       }
 
     } else if (tierIdx === 2){
-      // ---- GROUP 3 (EVADER): Orlan-10-style catapult-launched recon UAV —
-      // slender tapered fuselage with a nose-cone, high-mounted straight
-      // wing, twin tail booms bridged by a horizontal stabilizer between
-      // twin fins (H-tail, not V-tail — matches the real Orlan-10 silhouette
-      // better than a single wide fuselage would), belly EO/IR turret, rear
-      // pusher prop. Extra trim (nose antenna, wing tip caps, turret lens
-      // gleam) for a cleaner, higher-fidelity finish. ----
-      const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 1.05, 12), bodyMat);
-      fuselage.rotation.z = Math.PI / 2;
-      fuselage.position.set(0.08, 0, 0);
-      body.add(fuselage);
-      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), bodyMat);
-      nose.scale.set(1.3, 1, 1);
-      nose.position.set(0.62, 0, 0);
-      body.add(nose);
+      // ---- GROUP 3 (EVADER): redesigned as a sleeker, more aerodynamic
+      // recon UAV — a properly tapered/streamlined fuselage (three stacked
+      // cone segments instead of one straight cylinder), swept-back wings
+      // with visible dihedral (angled up rather than flat), and a slim
+      // single-fin V-tail in place of the old boxy twin-boom H-tail — reads
+      // as a purpose-built glider-like airframe rather than a blocky kit. ----
+      const noseSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.14, 0.5, 12), bodyMat);
+      noseSeg.rotation.z = Math.PI / 2;
+      noseSeg.position.set(0.55, 0, 0);
+      body.add(noseSeg);
+      const midSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 0.55, 12), bodyMat);
+      midSeg.rotation.z = Math.PI / 2;
+      midSeg.position.set(0.02, 0, 0);
+      body.add(midSeg);
+      const tailSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.04, 0.7, 12), bodyMat);
+      tailSeg.rotation.z = Math.PI / 2;
+      tailSeg.position.set(-0.6, 0, 0);
+      body.add(tailSeg);
+      const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.14, 10), bodyMat);
+      noseTip.rotation.z = -Math.PI / 2;
+      noseTip.position.set(0.85, 0, 0);
+      body.add(noseTip);
       // thin nose antenna whip — small silhouette detail, recon-UAV tell
       const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.22, 4), armMat);
       antenna.rotation.z = Math.PI / 2.3;
-      antenna.position.set(0.78, 0.06, 0);
+      antenna.position.set(0.9, 0.08, 0);
       body.add(antenna);
       // belly-mounted EO/IR sensor ball with a small glassy lens highlight
       const turret = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), armMat);
-      turret.position.set(0.3, -0.19, 0);
+      turret.position.set(0.25, -0.2, 0);
       body.add(turret);
       const lens = new THREE.Mesh(
         new THREE.SphereGeometry(0.035, 8, 8),
         new THREE.MeshStandardMaterial({ color: 0x1a2a33, roughness: 0.05, metalness: 0.7 })
       );
-      lens.position.set(0.3, -0.26, 0);
+      lens.position.set(0.25, -0.27, 0);
       body.add(lens);
-      // high-mounted straight wing
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.045, 0.3), bodyMat);
-      wing.position.set(0.02, 0.15, 0);
-      body.add(wing);
-      // small contrasting wingtip caps — cheap detail, big silhouette payoff
+      // swept-back wing with dihedral: built as two angled panels per side
+      // instead of one flat slab, so the wing visibly sweeps rearward and
+      // tips angle upward like a real glider/UAV wing
       const tipMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
       [1, -1].forEach(s => {
-        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.06), tipMat);
-        tip.position.set(0.02, 0.15, s * 1.16);
+        const rootPanel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.75), bodyMat);
+        rootPanel.position.set(-0.05, 0.14, s * 0.5);
+        rootPanel.rotation.y = s * 0.18; // sweep back
+        rootPanel.rotation.z = s * -0.05; // slight dihedral start
+        body.add(rootPanel);
+        const tipPanel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.65), bodyMat);
+        tipPanel.position.set(-0.28, 0.24, s * 1.05);
+        tipPanel.rotation.y = s * 0.3; // sweeps back further
+        tipPanel.rotation.z = s * -0.22; // pronounced dihedral (angled up)
+        body.add(tipPanel);
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.06), tipMat);
+        tip.position.set(-0.4, 0.34, s * 1.32);
         body.add(tip);
       });
-      // twin tail booms running from the wing back to twin vertical fins
+      // slim single-fin V-tail (two angled fins meeting near the tail cone)
+      // in place of the old boxy H-tail — cleaner, more purpose-built look
       [1, -1].forEach(s => {
-        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.02, 1.0, 8), armMat);
-        boom.rotation.z = Math.PI / 2;
-        boom.position.set(-0.44, 0.03, s * 1.0);
-        body.add(boom);
-        const vfin = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.32, 0.03), bodyMat);
-        vfin.position.set(-0.9, 0.19, s * 1.0);
+        const vfin = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.28, 0.025), bodyMat);
+        vfin.position.set(-0.98, 0.13, s * 0.18);
+        vfin.rotation.x = s * 0.55; // splayed outward into a V
         body.add(vfin);
       });
-      // horizontal stabilizer bridging the two fins — the defining Orlan-10 H-tail
-      const hstab = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 2.12), bodyMat);
-      hstab.position.set(-0.88, 0.04, 0);
-      body.add(hstab);
-      // rear pusher prop on a central pylon between the booms
-      const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), armMat);
-      pylon.rotation.z = Math.PI / 2;
-      pylon.position.set(-0.53, 0, 0);
-      body.add(pylon);
-      const pusherProp = new THREE.Mesh(new THREE.CircleGeometry(0.25, 12), propMat);
+      // rear pusher prop directly off the tail cone — no separate boom/pylon needed now
+      const pusherProp = new THREE.Mesh(new THREE.CircleGeometry(0.24, 14), propMat);
       pusherProp.rotation.y = Math.PI / 2;
-      pusherProp.position.set(-0.78, 0, 0);
+      pusherProp.position.set(-1.02, 0, 0);
       body.add(pusherProp);
+      const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.08, 8), armMat);
+      spinner.rotation.z = Math.PI / 2;
+      spinner.position.set(-1.0, 0, 0);
+      body.add(spinner);
 
     } else {
-      // ---- PHANTOM (tier 4): tailless delta flying-wing UCAV — clean
-      // triangular planform (stealth-UCAV silhouette, in the vein of an
-      // X-47B/RQ-170). Each spanwise slice is an unrotated box sized to the
-      // wing's actual chord at that station, so the leading edge sweeps back
-      // in a straight taper with no diagonal/rotated panels to catch the eye
-      // as visual noise — just boxes and cylinders (no Shape/Extrude) for
-      // guaranteed compatibility. No visible prop — reads as jet-powered,
-      // with a rear nozzle instead. Extra detail: low sensor-bump canopy,
-      // nozzle heat-ring, and small wingtip position lights for a cleaner,
-      // more finished stealth-airframe look. ----
-      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.4), bodyMat);
+      // ---- PHANTOM (tier 4): tailless delta flying-wing UCAV — redesigned
+      // with real spanwise taper AND chordwise camber: each wing slice is
+      // now a thin wedge (built from two stacked, differently-sized boxes)
+      // that's thicker at the leading edge and tapers down toward the
+      // trailing edge, and each slice also gets slightly THINNER toward the
+      // tip — so the wing actually reads as an airfoil in cross-section
+      // instead of a flat slab, and the whole planform reads as one
+      // continuous curved surface rather than stacked bricks. Still pure
+      // boxes/cylinders/cones for guaranteed compatibility. ----
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.35, metalness: 0.3 });
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.14, 0.42), bodyMat);
+      spine.position.set(0.08, 0, 0);
+      body.add(spine);
+      // slim raised spine ridge along the centerline for a sharper profile
+      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.1), bodyMat);
+      ridge.position.set(0.14, 0.095, 0);
+      body.add(ridge);
       spine.position.set(0.1, 0, 0);
       body.add(spine);
       // low, faceted sensor-bump canopy along the spine's centerline —
@@ -1833,11 +1862,14 @@
 
       // leading edge sweeps from the nose back to the wingtip; trailing edge
       // sweeps back too, but less steeply, so the chord shortens toward the
-      // tip — the classic tapered-delta silhouette
+      // tip — the classic tapered-delta silhouette. Each slice is now two
+      // stacked boxes offset in Y (a slightly taller front half, thinner
+      // rear half) to fake a cambered airfoil cross-section instead of a
+      // flat slab, and slice thickness itself tapers down toward the tip.
       const rootZ = 0.16, tipZ = 1.3;
       const rootLE = 0.55, tipLE = -0.42;   // leading edge x at root / tip
       const rootTE = -0.05, tipTE = -0.6;   // trailing edge x at root / tip
-      const SLICES = 7;
+      const SLICES = 9;
       [1, -1].forEach(s => {
         for (let i = 0; i < SLICES; i++){
           const f0 = i / SLICES, f1 = (i + 1) / SLICES;
@@ -1847,16 +1879,24 @@
           const leX = THREE.MathUtils.lerp(rootLE, tipLE, fm);
           const teX = THREE.MathUtils.lerp(rootTE, tipTE, fm);
           const chord = Math.max(leX - teX, 0.08);
-          const panel = new THREE.Mesh(
-            new THREE.BoxGeometry(chord, 0.05, (z1 - z0) * 1.15),
-            bodyMat
-          );
-          panel.position.set((leX + teX) / 2, 0, s * (z0 + z1) / 2);
-          body.add(panel);
+          const thickness = THREE.MathUtils.lerp(0.06, 0.022, fm); // tapers thinner toward the tip
+          const depth = (z1 - z0) * 1.15;
+          // front half (leading-edge side): slightly raised, thicker —
+          // the "high point" of a cambered airfoil
+          const frontChord = chord * 0.55;
+          const frontPanel = new THREE.Mesh(new THREE.BoxGeometry(frontChord, thickness, depth), bodyMat);
+          frontPanel.position.set(leX - frontChord / 2, thickness * 0.15, s * (z0 + z1) / 2);
+          body.add(frontPanel);
+          // rear half (trailing-edge side): thinner, slightly lower —
+          // completes the tapering-to-a-point airfoil profile
+          const rearChord = chord - frontChord;
+          const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(rearChord, thickness * 0.55, depth * 0.98), bodyMat);
+          rearPanel.position.set(leX - frontChord - rearChord / 2, -thickness * 0.1, s * (z0 + z1) / 2);
+          body.add(rearPanel);
         }
         // small wingtip position light — tiny colored detail at the very tip
         const tipLight = new THREE.Mesh(
-          new THREE.SphereGeometry(0.035, 6, 6),
+          new THREE.SphereGeometry(0.03, 6, 6),
           new THREE.MeshBasicMaterial({ color: s > 0 ? 0x39ff9d : 0xff4d5e })
         );
         tipLight.position.set(tipLE, 0, s * tipZ);
@@ -1867,7 +1907,12 @@
       nozzle.rotation.z = Math.PI / 2;
       nozzle.position.set(-0.62, 0, 0);
       body.add(nozzle);
-      // dark heat-ring recess at the nozzle exit for a touch of depth
+      // dark interior recess so the nozzle reads as an open exhaust, not a solid cap
+      const nozzleInterior = new THREE.Mesh(new THREE.CircleGeometry(0.085, 12), darkMat);
+      nozzleInterior.rotation.y = Math.PI / 2;
+      nozzleInterior.position.set(-0.715, 0, 0);
+      body.add(nozzleInterior);
+      // heat-ring recess at the nozzle exit for a touch of depth
       const heatRing = new THREE.Mesh(
         new THREE.TorusGeometry(0.09, 0.015, 6, 14),
         new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 })
@@ -1911,15 +1956,6 @@
     const beacon = new THREE.PointLight(tier.color, 1.4, 16);
     grp.add(beacon);
     grp.userData.beacon = beacon;
-    // small glowing beacon bulb so the tier color still reads at a glance
-    // without the old accent ring — sits at body center, top-mounted
-    const beaconBulb = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.max(bodyRadius * 0.09, 0.045), 8, 8),
-      new THREE.MeshBasicMaterial({ color: tier.color })
-    );
-    beaconBulb.position.set(0, bodyRadius * 0.28, 0);
-    grp.add(beaconBulb);
-    grp.userData.beaconBulb = beaconBulb;
     grp.userData.blink = 0;
     grp.userData.tier = tier;
     grp.userData.weavePhase = Math.random() * Math.PI * 2;
@@ -2025,7 +2061,6 @@
       if (rogueGroup.userData.beacon) {
         const pulse = 0.8 + Math.abs(Math.sin(rogueGroup.userData.blink * 9)) * 1.4;
         rogueGroup.userData.beacon.intensity = pulse;
-        if (rogueGroup.userData.beaconBulb) rogueGroup.userData.beaconBulb.scale.setScalar(0.7 + pulse * 0.25);
       }
 
     } else if (rogueState === 'falling'){
@@ -2406,7 +2441,6 @@
       rogueGroup.userData.wrapRadius = wrapRadius;
     }
     if (rogueGroup && rogueGroup.userData.beacon) rogueGroup.userData.beacon.color.set(0x888888);
-    if (rogueGroup && rogueGroup.userData.beaconBulb) rogueGroup.userData.beaconBulb.material.color.set(0x888888);
 
     containedCount++;
     const tierName = rogueGroup && rogueGroup.userData.tier ? rogueGroup.userData.tier.name : 'ROGUE DRONE';
