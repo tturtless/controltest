@@ -728,10 +728,14 @@
   // drones are genuinely harder to net, not just cosmetically different —
   // mirrors the UAS Group 1-4 chart's own range/speed progression.
   const ROGUE_TIERS = [
-    { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0,    scale: 1.0, roamRadius: 45, turnRate: 6  },
-    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.7, roamRadius: 60, turnRate: 8  },
-    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 1.5, roamRadius: 78, turnRate: 10 },
-    { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6,  scale: 1.9, roamRadius: 90, turnRate: 10 },
+    // roamRadius increased across the board and turnRate slightly lowered
+    // so the wider roam plays out as smooth, bank-and-turn flying rather
+    // than instant direction snaps (the new heading-based steering in
+    // updateRogueDrone also eases every turn regardless of turnRate).
+    { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0,    scale: 1.0, roamRadius: 70,  turnRate: 4.5 },
+    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.7, roamRadius: 95,  turnRate: 5.5 },
+    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 1.5, roamRadius: 125, turnRate: 6.5 },
+    { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6,  scale: 1.9, roamRadius: 145, turnRate: 6.5 },
   ];
   let rogueTierIdx = 0;
 
@@ -1626,10 +1630,14 @@
     const ang = Math.random() * Math.PI * 2;
     const tier = ROGUE_TIERS[Math.min(rogueTierIdx, ROGUE_TIERS.length - 1)];
     const radius = tier.roamRadius || ROGUE_RADIUS;
-    const r = Math.random() * radius;
+    // wider radius spread (not just a flat random draw out to the edge —
+    // biased slightly toward the outer band so targets more often send the
+    // drone on a real cross-map leg instead of clustering near center) and
+    // a taller altitude band so it climbs/descends meaningfully between legs
+    const r = radius * (0.35 + 0.65 * Math.random());
     rogueTarget.set(
       ROGUE_CENTER.x + Math.cos(ang) * r,
-      6 + Math.random() * 18,
+      4 + Math.random() * 38,
       ROGUE_CENTER.z + Math.sin(ang) * r
     );
   }
@@ -1649,16 +1657,29 @@
       // ---- GROUP 1 (SCOUT): compact quadrotor — the smallest, quickest
       // airframe in the roster. Built with the same part vocabulary as the
       // Group 2 hex (core / arms / motors / props / landing legs) so it
-      // reads as the same "family" of aircraft, just scaled down. ----
+      // reads as the same "family" of aircraft, just scaled down. Extra
+      // trim/detail pieces below (accent stripe, motor bell caps, canopy
+      // rim) give it a higher-fidelity, "product shot" look. ----
       const core = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.5, 1.02), bodyMat);
       body.add(core);
+      // thin contrasting accent stripe wrapped around the core's waist —
+      // cheap, high-payoff detail that reads as an actual paint job
+      const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.1 });
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.06, 1.05), stripeMat);
+      stripe.position.y = 0.05;
+      body.add(stripe);
       const canopy = new THREE.Mesh(
-        new THREE.SphereGeometry(0.3, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x0d1418, roughness: 0.12, metalness: 0.4 })
+        new THREE.SphereGeometry(0.3, 14, 10),
+        new THREE.MeshStandardMaterial({ color: 0x0d1418, roughness: 0.08, metalness: 0.5 })
       );
       canopy.scale.set(1, 0.55, 1);
       canopy.position.set(0.24, 0.28, 0);
       body.add(canopy);
+      // slim canopy rim trim, same accent color as the stripe
+      const canopyRim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 16), stripeMat);
+      canopyRim.rotation.x = Math.PI / 2;
+      canopyRim.position.set(0.24, 0.29, 0);
+      body.add(canopyRim);
       const armLen = 0.6;
       const armPositions = [
         [1, 1], [1, -1], [-1, 1], [-1, -1]
@@ -1668,9 +1689,17 @@
         arm.position.set(sx * armLen * 0.5, 0, sz * armLen * 0.5);
         arm.rotation.y = Math.atan2(sz, sx);
         body.add(arm);
-        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.25, 8), armMat);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.25, 10), armMat);
         motor.position.set(sx * armLen, 0.07, sz * armLen);
         body.add(motor);
+        // motor bell cap — small domed highlight so the motor doesn't read
+        // as a flat gray cylinder
+        const bellCap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.15, 0.15, 0.03, 10),
+          new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.6 })
+        );
+        bellCap.position.set(sx * armLen, 0.2, sz * armLen);
+        body.add(bellCap);
         const prop = new THREE.Mesh(new THREE.CircleGeometry(0.23, 16), propMat);
         prop.rotation.x = -Math.PI / 2;
         prop.position.set(sx * armLen, 0.22, sz * armLen);
@@ -1714,26 +1743,45 @@
       // wing, twin tail booms bridged by a horizontal stabilizer between
       // twin fins (H-tail, not V-tail — matches the real Orlan-10 silhouette
       // better than a single wide fuselage would), belly EO/IR turret, rear
-      // pusher prop. ----
-      const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 1.05, 10), bodyMat);
+      // pusher prop. Extra trim (nose antenna, wing tip caps, turret lens
+      // gleam) for a cleaner, higher-fidelity finish. ----
+      const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 1.05, 12), bodyMat);
       fuselage.rotation.z = Math.PI / 2;
       fuselage.position.set(0.08, 0, 0);
       body.add(fuselage);
-      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), bodyMat);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), bodyMat);
       nose.scale.set(1.3, 1, 1);
       nose.position.set(0.62, 0, 0);
       body.add(nose);
-      // belly-mounted EO/IR sensor ball
-      const turret = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), armMat);
+      // thin nose antenna whip — small silhouette detail, recon-UAV tell
+      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.22, 4), armMat);
+      antenna.rotation.z = Math.PI / 2.3;
+      antenna.position.set(0.78, 0.06, 0);
+      body.add(antenna);
+      // belly-mounted EO/IR sensor ball with a small glassy lens highlight
+      const turret = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), armMat);
       turret.position.set(0.3, -0.19, 0);
       body.add(turret);
+      const lens = new THREE.Mesh(
+        new THREE.SphereGeometry(0.035, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x1a2a33, roughness: 0.05, metalness: 0.7 })
+      );
+      lens.position.set(0.3, -0.26, 0);
+      body.add(lens);
       // high-mounted straight wing
       const wing = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.045, 0.3), bodyMat);
       wing.position.set(0.02, 0.15, 0);
       body.add(wing);
+      // small contrasting wingtip caps — cheap detail, big silhouette payoff
+      const tipMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+      [1, -1].forEach(s => {
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.06), tipMat);
+        tip.position.set(0.02, 0.15, s * 1.16);
+        body.add(tip);
+      });
       // twin tail booms running from the wing back to twin vertical fins
       [1, -1].forEach(s => {
-        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.02, 1.0, 6), armMat);
+        const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.02, 1.0, 8), armMat);
         boom.rotation.z = Math.PI / 2;
         boom.position.set(-0.44, 0.03, s * 1.0);
         body.add(boom);
@@ -1746,7 +1794,7 @@
       hstab.position.set(-0.88, 0.04, 0);
       body.add(hstab);
       // rear pusher prop on a central pylon between the booms
-      const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 6), armMat);
+      const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), armMat);
       pylon.rotation.z = Math.PI / 2;
       pylon.position.set(-0.53, 0, 0);
       body.add(pylon);
@@ -1763,11 +1811,22 @@
       // in a straight taper with no diagonal/rotated panels to catch the eye
       // as visual noise — just boxes and cylinders (no Shape/Extrude) for
       // guaranteed compatibility. No visible prop — reads as jet-powered,
-      // with a rear nozzle instead. ----
+      // with a rear nozzle instead. Extra detail: low sensor-bump canopy,
+      // nozzle heat-ring, and small wingtip position lights for a cleaner,
+      // more finished stealth-airframe look. ----
       const spine = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.4), bodyMat);
       spine.position.set(0.1, 0, 0);
       body.add(spine);
-      const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 8), bodyMat);
+      // low, faceted sensor-bump canopy along the spine's centerline —
+      // subtle, doesn't break the tailless silhouette from a distance
+      const canopyBump = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x0d1418, roughness: 0.1, metalness: 0.5 })
+      );
+      canopyBump.scale.set(1.4, 0.5, 1);
+      canopyBump.position.set(0.28, 0.08, 0);
+      body.add(canopyBump);
+      const noseTip = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.32, 10), bodyMat);
       noseTip.rotation.z = -Math.PI / 2;
       noseTip.position.set(0.6, 0, 0);
       body.add(noseTip);
@@ -1795,12 +1854,27 @@
           panel.position.set((leX + teX) / 2, 0, s * (z0 + z1) / 2);
           body.add(panel);
         }
+        // small wingtip position light — tiny colored detail at the very tip
+        const tipLight = new THREE.Mesh(
+          new THREE.SphereGeometry(0.035, 6, 6),
+          new THREE.MeshBasicMaterial({ color: s > 0 ? 0x39ff9d : 0xff4d5e })
+        );
+        tipLight.position.set(tipLE, 0, s * tipZ);
+        body.add(tipLight);
       });
       // rear jet nozzle — tailless stealth-UCAV styling, no visible prop
-      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.2, 10), armMat);
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.2, 12), armMat);
       nozzle.rotation.z = Math.PI / 2;
       nozzle.position.set(-0.62, 0, 0);
       body.add(nozzle);
+      // dark heat-ring recess at the nozzle exit for a touch of depth
+      const heatRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.09, 0.015, 6, 14),
+        new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 })
+      );
+      heatRing.rotation.y = Math.PI / 2;
+      heatRing.position.set(-0.72, 0, 0);
+      body.add(heatRing);
     }
 
     return body;
@@ -1882,18 +1956,39 @@
     const tier = rogueGroup.userData.tier || ROGUE_TIERS[0];
 
     if (rogueState === 'flying'){
-      const toTarget = rogueTarget.clone().sub(rogueGroup.position);
-      const d = toTarget.length();
-      if (d < 2.5) {
+      const toTargetRaw = rogueTarget.clone().sub(rogueGroup.position);
+      const d = toTargetRaw.length();
+      if (d < 3.5) {
         pickRogueTarget();
-      } else {
-        toTarget.normalize();
-        rogueGroup.position.addScaledVector(toTarget, tier.speed * dt);
       }
+      const toTarget = rogueTarget.clone().sub(rogueGroup.position);
+      const desiredDir = toTarget.lengthSq() > 0.0001 ? toTarget.clone().normalize() : new THREE.Vector3(0,0,1);
+
+      // ---- physics-style steering: turn the actual travel heading toward
+      // the target gradually instead of snapping straight at it. A fresh
+      // target (especially one far off in altitude/direction) no longer
+      // yanks the flight path instantly — the heading vector itself eases
+      // toward desiredDir at the tier's turn rate, same as a real aircraft
+      // banking into a new course, so long cross-country legs and altitude
+      // changes read as deliberate flying rather than teleporting redirects.
+      if (!rogueGroup.userData.heading) rogueGroup.userData.heading = desiredDir.clone();
+      const heading = rogueGroup.userData.heading;
+      const steerRate = (tier.turnRate || 6) * 0.55; // rad/s-equivalent heading turn
+      const cosAngle = THREE.MathUtils.clamp(heading.dot(desiredDir), -1, 1);
+      const angleBetween = Math.acos(cosAngle);
+      if (angleBetween > 1e-4){
+        const axis = new THREE.Vector3().crossVectors(heading, desiredDir);
+        if (axis.lengthSq() < 1e-8) axis.set(0, 1, 0); // near-opposite vectors: pick an arbitrary turn axis
+        else axis.normalize();
+        const step = Math.min(angleBetween, steerRate * dt);
+        heading.applyAxisAngle(axis, step).normalize();
+      }
+      rogueGroup.position.addScaledVector(heading, tier.speed * dt);
+
       // higher-tier drones weave laterally, making them harder to lead with a net
       if (tier.weave > 0){
         rogueGroup.userData.weavePhase += tier.weaveFreq * dt;
-        const lateral = new THREE.Vector3(-toTarget.z, 0, toTarget.x); // perpendicular to travel
+        const lateral = new THREE.Vector3(-heading.z, 0, heading.x); // perpendicular to travel
         rogueGroup.position.addScaledVector(lateral, Math.sin(rogueGroup.userData.weavePhase) * tier.weave * dt);
       }
       // top-tier drones actively dodge nets that get close, juking sideways
@@ -1909,12 +2004,17 @@
           }
         }
       }
+      // keep it inside the play volume and above ground even mid-turn,
+      // since the eased heading can otherwise carry it slightly wide of a
+      // far/high target before it finishes banking around
+      if (rogueGroup.position.y < 2.5) rogueGroup.position.y = 2.5;
+      if (rogueGroup.position.y > 46) rogueGroup.position.y = 46;
       // orient the body to actually face its direction of travel, like a
       // real aircraft/quad — no more constant spin-in-place, which looked
       // broken once the body became a real quad/fixed-wing shape instead of
       // a symmetric octahedron
-      if (toTarget.lengthSq() > 0.0001 && rogueGroup.userData.body){
-        const desiredYaw = Math.atan2(toTarget.x, toTarget.z) - Math.PI / 2; // model's nose points along +X
+      if (heading.lengthSq() > 0.0001 && rogueGroup.userData.body){
+        const desiredYaw = Math.atan2(heading.x, heading.z) - Math.PI / 2; // model's nose points along +X
         let yawDiff = desiredYaw - rogueGroup.userData.body.rotation.y;
         yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff)); // shortest-path wrap, avoids snapping the long way around
         const turnRate = tier.turnRate || 6;
@@ -2326,36 +2426,23 @@
     const { r, p, y, t } = getInputs();
 
     // ---- ground rest / takeoff handling ----
-    // While landed, the craft sits perfectly still (no gravity drift, no
-    // bump-loop) until the pilot actually commands takeoff with real
-    // throttle — this is what stops the old "hopping in place" bug, which
-    // was gravity pulling the craft below the floor plane every frame while
-    // a separate ground-bump immediately shoved it back up, repeating.
+    // While landed, the craft's position/velocity are held still (no
+    // gravity drift, no bump-loop) until the pilot commands takeoff with
+    // real throttle. Unlike before, this does NOT freeze the rest of the
+    // world — propellers, the net minigame, rogue-drone AI, and net
+    // projectiles all keep updating normally below, so landing never
+    // pauses the game.
     const LIFTOFF_THROTTLE = 0.06; // minimum throttle to actually leave the ground
     if (landed){
-      if (t > LIFTOFF_THROTTLE){
-        landed = false; // pilot commanded takeoff — physics resumes below
-      } else {
-        // stay put: zero out any residual velocity/rates, keep attitude level
-        vel.set(0, 0, 0);
-        pos.y = 0.15;
-        // still allow yaw-in-place on the ground (handy for lining up a take-off heading)
-        if (Math.abs(y) > 0.001){
-          const dq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -y * 2.4 * dt);
-          orientation.multiply(dq);
-          orientation.normalize();
-        }
-        camera.position.copy(pos);
-        const camOffsetGround = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(1, 0, 0),
-          THREE.MathUtils.degToRad(camAngleDeg)
-        );
-        camera.quaternion.copy(orientation).multiply(camOffsetGround);
-        flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD 0.0m/s<br><span style="color:#6f8f88">LANDED — throttle up to take off</span>`;
-        renderer.render(scene, camera);
-        animId = requestAnimationFrame(animate);
-        return;
+      vel.set(0, 0, 0);
+      pos.y = 0.15;
+      // still allow yaw-in-place on the ground (handy for lining up a take-off heading)
+      if (Math.abs(y) > 0.001){
+        const dq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -y * 2.4 * dt);
+        orientation.multiply(dq);
+        orientation.normalize();
       }
+      if (t > LIFTOFF_THROTTLE) landed = false; // pilot commanded takeoff — physics resumes next frame
     }
 
     // acro mode: sticks command a rotation RATE (deg/s equivalent), not a
@@ -2372,79 +2459,86 @@
     const KV_REF = 2700; // reference KV the base 52 m/s^2 figure was tuned at
     const KV_SCALE = MOTOR_KV / KV_REF;
 
-    // ---- body-rate integration (quaternion, no gimbal lock) ----
-    // Build the angular velocity the sticks are commanding, expressed in the
-    // CRAFT'S OWN local axes (X = pitch axis, Y = yaw axis, Z = roll axis).
-    // Because this is applied in body space every frame, roll/pitch/yaw
-    // always mean "rotate about the nose/the belly/the spine as they are
-    // right now" — identical behavior whether the craft is level, inverted,
-    // mid-flip, or pitched straight up. That's what keeps stick orientation
-    // "solid" through full-deflection maneuvers instead of bugging out.
-    const bodyAngVel = new THREE.Vector3(
-      -p * PITCH_RATE,   // pitch about local X
-      -y * YAW_RATE,     // yaw about local Y
-      -r * ROLL_RATE      // roll about local Z
-    );
-    const angSpeed = bodyAngVel.length();
-    if (angSpeed > 1e-6) {
-      const axis = bodyAngVel.clone().normalize();
-      const dq = new THREE.Quaternion().setFromAxisAngle(axis, angSpeed * dt);
-      orientation.multiply(dq); // post-multiply = rotate in the craft's own frame
-      orientation.normalize();
-    }
-
-    // thrust acts along the drone's body "up" axis (like a real multirotor),
-    // found by rotating world-up through the current attitude quaternion —
-    // this stays correct at any orientation, including upside down.
-    const thrust = t * 52 * KV_SCALE; // max accel — 30000KV motors
-    const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
-
-    vel.x += bodyUp.x * thrust * dt;
-    vel.z += bodyUp.z * thrust * dt;
-    vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
-
-    // drag — separate, stronger drag on downward (falling) speed so descents
-    // feel weighty and controlled rather than floaty; horizontal/climb drag
-    // stays low for that high-KV top-speed feel.
-    const horizDrag = 1 - Math.min(1, 0.7*dt);
-    vel.x *= horizDrag;
-    vel.z *= horizDrag;
-    if (vel.y < 0){
-      vel.y *= (1 - Math.min(1, 0.15*dt)); // falling: much less air resistance, drops faster
-    } else {
-      vel.y *= horizDrag;
-    }
-
-    const nextPos = pos.clone().addScaledVector(vel, dt);
-    const hit = collide(nextPos);
-    if (!hit){
-      pos.copy(nextPos);
-    } else {
-      // soft bump: only cancel the velocity component driving INTO the
-      // surface (along its normal), keep the rest of the motion — a casual
-      // thud rather than a launch backwards, and no sticking to the wall.
-      const n = hit.normal;
-      const vDotN = vel.dot(n);
-      if (vDotN < 0){
-        vel.addScaledVector(n, -vDotN * 1.15);
+    if (!landed){
+      // ---- body-rate integration (quaternion, no gimbal lock) ----
+      // Build the angular velocity the sticks are commanding, expressed in the
+      // CRAFT'S OWN local axes (X = pitch axis, Y = yaw axis, Z = roll axis).
+      // Because this is applied in body space every frame, roll/pitch/yaw
+      // always mean "rotate about the nose/the belly/the spine as they are
+      // right now" — identical behavior whether the craft is level, inverted,
+      // mid-flip, or pitched straight up. That's what keeps stick orientation
+      // "solid" through full-deflection maneuvers instead of bugging out.
+      const bodyAngVel = new THREE.Vector3(
+        -p * PITCH_RATE,   // pitch about local X
+        -y * YAW_RATE,     // yaw about local Y
+        -r * ROLL_RATE      // roll about local Z
+      );
+      const angSpeed = bodyAngVel.length();
+      if (angSpeed > 1e-6) {
+        const axis = bodyAngVel.clone().normalize();
+        const dq = new THREE.Quaternion().setFromAxisAngle(axis, angSpeed * dt);
+        orientation.multiply(dq); // post-multiply = rotate in the craft's own frame
+        orientation.normalize();
       }
-      pos.copy(nextPos).addScaledVector(n, 0.05); // tiny push-out to avoid sticking
-      flyMsg.textContent = 'BUMP';
-      setTimeout(() => { flyMsg.textContent=''; }, 300);
-    }
 
-    // ground plane: handled separately from obstacle collision so it can
-    // transition cleanly into the "landed" resting state above instead of
-    // bump-looping against gravity every frame.
-    if (pos.y <= 0.15){
-      pos.y = 0.15;
-      if (t <= LIFTOFF_THROTTLE){
-        // low/no throttle at ground contact = touchdown, come to rest
-        landed = true;
-        vel.set(0, 0, 0);
+      // thrust acts along the drone's body "up" axis (like a real multirotor),
+      // found by rotating world-up through the current attitude quaternion —
+      // this stays correct at any orientation, including upside down.
+      const thrust = t * 52 * KV_SCALE; // max accel — 30000KV motors
+      const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation);
+
+      vel.x += bodyUp.x * thrust * dt;
+      vel.z += bodyUp.z * thrust * dt;
+      vel.y += (bodyUp.y * thrust + GRAVITY) * dt;
+
+      // drag — separate, stronger drag on downward (falling) speed so descents
+      // feel weighty and controlled rather than floaty; horizontal/climb drag
+      // stays low for that high-KV top-speed feel.
+      const horizDrag = 1 - Math.min(1, 0.7*dt);
+      vel.x *= horizDrag;
+      vel.z *= horizDrag;
+      if (vel.y < 0){
+        vel.y *= (1 - Math.min(1, 0.15*dt)); // falling: much less air resistance, drops faster
       } else {
-        // still commanding throttle at ground contact — just don't sink through
-        vel.y = Math.max(0, vel.y);
+        vel.y *= horizDrag;
+      }
+
+      const nextPos = pos.clone().addScaledVector(vel, dt);
+      const hit = collide(nextPos);
+      if (!hit){
+        pos.copy(nextPos);
+      } else {
+        // soft bump: only cancel the velocity component driving INTO the
+        // surface (along its normal), keep the rest of the motion — a casual
+        // thud rather than a launch backwards, and no sticking to the wall.
+        const n = hit.normal;
+        const vDotN = vel.dot(n);
+        if (vDotN < 0){
+          vel.addScaledVector(n, -vDotN * 1.15);
+        }
+        pos.copy(nextPos).addScaledVector(n, 0.05); // tiny push-out to avoid sticking
+        flyMsg.textContent = 'BUMP';
+        setTimeout(() => { flyMsg.textContent=''; }, 300);
+      }
+
+      // ground plane: handled separately from obstacle collision so it can
+      // transition cleanly into the "landed" resting state below instead of
+      // bump-looping against gravity every frame.
+      if (pos.y <= 0.15){
+        pos.y = 0.15;
+        if (t <= LIFTOFF_THROTTLE){
+          // low/no throttle at ground contact = touchdown, come to rest —
+          // level the craft out flat (whatever pitch/roll it touched down
+          // at gets zeroed, yaw heading is kept) so it visibly settles down
+          // onto its landing gear instead of freezing mid-tilt.
+          landed = true;
+          vel.set(0, 0, 0);
+          const euler = new THREE.Euler().setFromQuaternion(orientation, 'YXZ');
+          orientation.setFromEuler(new THREE.Euler(0, euler.y, 0, 'YXZ'));
+        } else {
+          // still commanding throttle at ground contact — just don't sink through
+          vel.y = Math.max(0, vel.y);
+        }
       }
     }
 
@@ -2462,7 +2556,7 @@
 
     propellers.forEach(pr => pr.rotation.y += 40 * dt * (0.3 + t));
 
-    flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD ${vel.length().toFixed(1)}m/s`;
+    flyOsd.innerHTML = `THR ${(t*100).toFixed(0)}%<br>ALT ${pos.y.toFixed(1)}m<br>SPD ${vel.length().toFixed(1)}m/s` + (landed ? `<br><span style="color:#6f8f88">LANDED — throttle up to take off</span>` : '');
 
     if (netGameActive){
       // one net per off→on flip of the switch — must be disabled and
