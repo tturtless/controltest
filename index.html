@@ -2029,12 +2029,19 @@
       // top-tier drones actively dodge nets that get close, juking sideways
       if (tier.dodge > 0){
         rogueGroup.userData.dodgeCooldown -= dt;
+        // Apply any active dodge velocity (bleeds off over ~0.4s so the juke
+        // reads as a sharp bank rather than a teleport or a runway sprint)
+        if (!rogueGroup.userData.dodgeVel) rogueGroup.userData.dodgeVel = new THREE.Vector3();
+        rogueGroup.position.addScaledVector(rogueGroup.userData.dodgeVel, dt);
+        rogueGroup.userData.dodgeVel.multiplyScalar(Math.max(0, 1 - 2.5 * dt));
         for (const np of netProjectiles){
           if (np.mesh.position.distanceTo(rogueGroup.position) < 6 && rogueGroup.userData.dodgeCooldown <= 0){
             const away = rogueGroup.position.clone().sub(np.mesh.position).normalize();
-            const juke = new THREE.Vector3(-away.z, 0.3, away.x);
-            rogueGroup.position.addScaledVector(juke, tier.dodge * 6);
-            rogueGroup.userData.dodgeCooldown = 0.8;
+            // Lateral juke perpendicular to the incoming net, with a mild upward kick
+            const lateral = new THREE.Vector3(-away.z, 0, away.x);
+            const impulse = lateral.multiplyScalar(tier.dodge * 28).add(new THREE.Vector3(0, tier.dodge * 6, 0));
+            rogueGroup.userData.dodgeVel.copy(impulse);
+            rogueGroup.userData.dodgeCooldown = 1.1;
             break;
           }
         }
@@ -2195,20 +2202,16 @@
     const rimR = CANOPY_RADIUS * 0.9 * canopyScale;
     const lines = chuteGrp.userData.lines;
     const lineCount = chuteGrp.userData.lineCount;
+    // All shroud lines converge to a single tight riser bundle just above
+    // the drone — like real parachute risers that gather from the canopy rim
+    // down to one central attachment point, not four spread-out corners.
+    const riserWorld = dronePos.clone().add(new THREE.Vector3(offsetX * 0.1, wrapHalfY * 1.1, offsetZ * 0.1));
+    const riserLocal = riserWorld.clone().sub(chuteGrp.position);
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
       const rimWorld = new THREE.Vector3(Math.cos(ang) * rimR, 0.05 * canopyScale * flatten, Math.sin(ang) * rimR).add(canopyCenter);
-      // Anchor each shroud line at the top rim of the capture-net wrap, in the
-      // same horizontal direction as the canopy rim point above it, so the cord
-      // runs straight down and visibly lands ON the net (not floating above it)
-      const netAnchorWorld = dronePos.clone().add(new THREE.Vector3(
-        Math.cos(ang) * wrapHalfX * 0.85,
-        wrapHalfY * 0.9,
-        Math.sin(ang) * wrapHalfZ * 0.85
-      ));
       const rimLocal = rimWorld.clone().sub(chuteGrp.position);
-      const anchorLocal = netAnchorWorld.clone().sub(chuteGrp.position);
-      lines[i].geometry.setFromPoints([rimLocal, anchorLocal]);
+      lines[i].geometry.setFromPoints([rimLocal, riserLocal]);
     }
   }
 
