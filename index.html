@@ -732,10 +732,10 @@
     // so the wider roam plays out as smooth, bank-and-turn flying rather
     // than instant direction snaps (the new heading-based steering in
     // updateRogueDrone also eases every turn regardless of turnRate).
-    { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 6.5,  weave: 0,    weaveFreq: 0,   dodge: 0,    scale: 1.0, roamRadius: 70,  turnRate: 4.5 },
-    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 13,   weave: 2.6,  weaveFreq: 1.8, dodge: 0,    scale: 1.7, roamRadius: 95,  turnRate: 5.5 },
-    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 19,   weave: 4.2,  weaveFreq: 2.6, dodge: 0.35, scale: 1.5, roamRadius: 125, turnRate: 6.5 },
-    { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 15.5, weave: 4.6,  weaveFreq: 2.8, dodge: 0.6,  scale: 1.9, roamRadius: 145, turnRate: 6.5 },
+    { name: 'ROGUE SCOUT',   color: 0xff2d3d, emissive: 0x661015, speed: 11,   weave: 1.8,  weaveFreq: 1.4, dodge: 0,    scale: 1.0, roamRadius: 120, turnRate: 5.5 },
+    { name: 'ROGUE RUNNER',  color: 0xff8a1e, emissive: 0x663a10, speed: 20,   weave: 4.0,  weaveFreq: 2.4, dodge: 0.2,  scale: 1.7, roamRadius: 165, turnRate: 7.0 },
+    { name: 'ROGUE EVADER',  color: 0xffe11e, emissive: 0x66590f, speed: 29,   weave: 6.0,  weaveFreq: 3.2, dodge: 0.55, scale: 1.5, roamRadius: 210, turnRate: 8.5 },
+    { name: 'ROGUE PHANTOM', color: 0xb84dff, emissive: 0x481a66, speed: 26,   weave: 7.0,  weaveFreq: 3.6, dodge: 0.9,  scale: 1.9, roamRadius: 250, turnRate: 9.0 },
   ];
   let rogueTierIdx = 0;
 
@@ -1637,7 +1637,7 @@
     const r = radius * (0.35 + 0.65 * Math.random());
     rogueTarget.set(
       ROGUE_CENTER.x + Math.cos(ang) * r,
-      4 + Math.random() * 38,
+      3 + Math.random() * 68,
       ROGUE_CENTER.z + Math.sin(ang) * r
     );
   }
@@ -1954,9 +1954,7 @@
     grp.userData.bodyRadius = bodyRadius;
     grp.userData.bodySize = bounds.getSize(new THREE.Vector3());
 
-    const beacon = new THREE.PointLight(tier.color, 1.4, 16);
-    grp.add(beacon);
-    grp.userData.beacon = beacon;
+    grp.userData.beacon = null; // no ground-projecting point light
     grp.userData.blink = 0;
     grp.userData.tier = tier;
     grp.userData.weavePhase = Math.random() * Math.PI * 2;
@@ -2044,8 +2042,8 @@
       // keep it inside the play volume and above ground even mid-turn,
       // since the eased heading can otherwise carry it slightly wide of a
       // far/high target before it finishes banking around
-      if (rogueGroup.position.y < 2.5) rogueGroup.position.y = 2.5;
-      if (rogueGroup.position.y > 46) rogueGroup.position.y = 46;
+      if (rogueGroup.position.y < 2.0) rogueGroup.position.y = 2.0;
+      if (rogueGroup.position.y > 75) rogueGroup.position.y = 75;
       // orient the body to actually face its direction of travel, like a
       // real aircraft/quad — no more constant spin-in-place, which looked
       // broken once the body became a real quad/fixed-wing shape instead of
@@ -2151,7 +2149,7 @@
     chuteGrp.add(canopy);
     chuteGrp.userData.canopy = canopy;
     const lineMat = new THREE.LineBasicMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.7 });
-    const lineCount = 6;
+    const lineCount = 4;
     const lines = [];
     for (let i = 0; i < lineCount; i++){
       const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
