@@ -1837,15 +1837,16 @@
       // continuous curved surface rather than stacked bricks. Still pure
       // boxes/cylinders/cones for guaranteed compatibility. ----
       const darkMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.35, metalness: 0.3 });
-      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.14, 0.42), bodyMat);
-      spine.position.set(0.08, 0, 0);
+      // spine spans from the nozzle mouth (x≈-0.52) to the nose-cone base (x≈0.44),
+      // closing the fuselage gap that appeared between those two pieces
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.14, 0.42), bodyMat);
+      spine.position.set(-0.04, 0, 0);
       body.add(spine);
-      // slim raised spine ridge along the centerline for a sharper profile
+      // slim raised spine ridge along the centerline for a sharper profile;
+      // raised 0.005 above the spine top to avoid z-fighting
       const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.1), bodyMat);
-      ridge.position.set(0.14, 0.095, 0);
+      ridge.position.set(0.14, 0.10, 0);
       body.add(ridge);
-      spine.position.set(0.1, 0, 0);
-      body.add(spine);
       // low, faceted sensor-bump canopy along the spine's centerline —
       // subtle, doesn't break the tailless silhouette from a distance
       const canopyBump = new THREE.Mesh(
@@ -2182,10 +2183,12 @@
     lateralAngle = lateralAngle || 0;
     flatten = flatten === undefined ? 1 : flatten; // 1 = full dome height, toward 0 = pancaked flat
     const dronePos = grp.position;
-    const rawWrapRadius = grp.userData.wrapRadius || NET_WRAP_RADIUS;
-    // cap how far out the shroud lines can reach, independent of how wide
-    // the actual airframe is — keeps the riser bundle tidy on every tier
-    const anchorRadius = Math.min(rawWrapRadius, CANOPY_RADIUS * 0.55);
+    // Use stored wrap half-extents so each shroud line terminates on the visible
+    // net surface rather than at a generic bounding-sphere offset that often
+    // floats above or inside the mesh (Group 1 symptom: lines hung in mid-air)
+    const wrapHalfX = grp.userData.wrapHalfX || Math.min(grp.userData.wrapRadius || NET_WRAP_RADIUS, CANOPY_RADIUS * 0.55);
+    const wrapHalfZ = grp.userData.wrapHalfZ || wrapHalfX;
+    const wrapHalfY = grp.userData.wrapHalfY || 0.3;
     const offsetX = Math.cos(lateralAngle) * lateralOffset;
     const offsetZ = Math.sin(lateralAngle) * lateralOffset;
     const canopyCenter = new THREE.Vector3(dronePos.x + offsetX, dronePos.y + canopyHeight, dronePos.z + offsetZ);
@@ -2197,11 +2200,14 @@
     for (let i = 0; i < lineCount; i++){
       const ang = (i / lineCount) * Math.PI * 2;
       const rimWorld = new THREE.Vector3(Math.cos(ang) * rimR, 0.05 * canopyScale * flatten, Math.sin(ang) * rimR).add(canopyCenter);
-      // anchor point on a small riser bundle just above the netted drone,
-      // facing this rim point — tight and consistent regardless of airframe size
-      const towardRim = rimWorld.clone().sub(dronePos);
-      const anchorDir = towardRim.lengthSq() > 0.0001 ? towardRim.normalize() : new THREE.Vector3(0, 1, 0);
-      const netAnchorWorld = dronePos.clone().addScaledVector(anchorDir, anchorRadius).add(new THREE.Vector3(0, anchorRadius * 0.4, 0));
+      // Anchor each shroud line at the top rim of the capture-net wrap, in the
+      // same horizontal direction as the canopy rim point above it, so the cord
+      // runs straight down and visibly lands ON the net (not floating above it)
+      const netAnchorWorld = dronePos.clone().add(new THREE.Vector3(
+        Math.cos(ang) * wrapHalfX * 0.85,
+        wrapHalfY * 0.9,
+        Math.sin(ang) * wrapHalfZ * 0.85
+      ));
       const rimLocal = rimWorld.clone().sub(chuteGrp.position);
       const anchorLocal = netAnchorWorld.clone().sub(chuteGrp.position);
       lines[i].geometry.setFromPoints([rimLocal, anchorLocal]);
@@ -2320,8 +2326,10 @@
     // cap the wrap's footprint so a wide-winged airframe still cinches down
     // into a tidy bundle under the chute, instead of the net silhouette
     // sprawling out to the drone's full uncaptured wingspan
-    const halfX = Math.min(Math.max(bodySize.x, 0.4) / 2 * 1.1, 1.0);
+    // halfX cap raised to 1.8 so the wrap reaches rear-mounted rotors (Group 3 pusher prop sits ~1.53 units behind centre at tier scale)
+    const halfX = Math.min(Math.max(bodySize.x, 0.4) / 2 * 1.1, 1.8);
     const halfY = Math.min(Math.max(bodySize.y, 0.35) / 2 * 1.5, 0.75); // extra vertical slack so it visibly bunches, not skin-tight
+    // halfZ cap kept at 1.0 so wide-winged platforms (Group 3 wings, Group 4 delta) don't sprawl sideways
     const halfZ = Math.min(Math.max(bodySize.z, 0.4) / 2 * 1.1, 1.0);
 
     const strandMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
@@ -2439,6 +2447,11 @@
       rogueGroup.add(wrap);
       rogueGroup.userData.wrap = wrap;
       rogueGroup.userData.wrapRadius = wrapRadius;
+      // Store the actual wrap half-extents so shroud lines can terminate exactly
+      // on the net surface rather than at a generic bounding-sphere radius
+      rogueGroup.userData.wrapHalfX = Math.min(Math.max(bodySize.x, 0.4) / 2 * 1.1, 1.8);
+      rogueGroup.userData.wrapHalfZ = Math.min(Math.max(bodySize.z, 0.4) / 2 * 1.1, 1.0);
+      rogueGroup.userData.wrapHalfY = Math.min(Math.max(bodySize.y, 0.35) / 2 * 1.5, 0.75);
     }
     if (rogueGroup && rogueGroup.userData.beacon) rogueGroup.userData.beacon.color.set(0x888888);
 
